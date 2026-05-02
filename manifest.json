@@ -2,7 +2,7 @@
   "name": "HolidayQuest",
   "short_name": "HolidayQuest",
   "description": "Check in, tag friends, earn points on holiday",
-  "start_url": "./holidayquest.html",
+  "start_url": "/holiday_quest/holidayquest.html",
   "display": "standalone",
   "background_color": "#FAF3E7",
   "theme_color": "#0E1B2A",
