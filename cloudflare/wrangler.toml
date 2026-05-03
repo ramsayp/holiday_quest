@@ -1,0 +1,7 @@
+name = "salesforce-proxy"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Environment variables are set in Cloudflare dashboard
+# JWT_SECRET is stored as a secret, not here
