@@ -898,7 +898,6 @@ function App() {
               <div style={{fontSize:22}}>{CAT_EMOJI[p.category]||"📍"}</div>
               <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.category} · {p.points} pts</div></div>
               <button className="hq-btn-sm" onClick={()=>setEditPlace({...p,points:String(p.points)})}>Edit</button>
-              <button className="hq-btn-sm" onClick={()=>setEditPlace({...p,points:String(p.points)})}>Edit</button>
               <button className="hq-btn-sm danger" onClick={()=>setConfirmRemovePlace(p)}>✕</button>
             </div>)}
             {confirmRemovePlace&&<div className="hq-confirm-box">
