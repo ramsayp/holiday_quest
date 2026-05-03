@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>HolidayQuest</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json"/>
+  <meta name="theme-color" content="#0E1B2A"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="HolidayQuest"/>
+  <link rel="apple-touch-icon" href="icon-512.png"/>
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png"/>
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png"/>
+
+  <!-- Splash screens for iPhone -->
+  <meta name="apple-mobile-web-app-status-bar-style" content="black"/>
+
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+const WORKER    = "https://salesforce-proxy.paulsbramsay.workers.dev";
+const LS_JWT    = "hq_jwt";
+const LS_CLIENT = "hq_client";
+const LS_HOLIDAY= "hq_holiday";
+const LS_PLAYER = "hq_player";
+
+const CAT_EMOJI = { Restaurant:"🍽️", Bar:"🍸", Club:"🕺", Pub:"🍺", Other:"📍" };
+const COLORS    = ["#FF6B47","#3D9BB5","#E8B647","#7B5E9C","#4CAF82","#E91E8C","#00BCD4","#FF9800","#E53935","#8D6E63","#546E7A","#2E7D32","#AD1457","#1565C0","#F57F17","#4A148C"];
+
+function initial(n) { return (n||"?")[0].toUpperCase(); }
+function timeAgo(ts) {
+  const d=(Date.now()-ts)/1000;
+  if(d<60) return "just now";
+  if(d<3600) return Math.floor(d/60)+"m ago";
+  if(d<86400) return Math.floor(d/3600)+"h ago";
+  return Math.floor(d/86400)+"d ago";
+}
+async function hashPassword(p) {
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(p));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+async function api(type,payload={},jwt=null) {
+  const headers={"Content-Type":"application/json"};
+  if(jwt) headers["Authorization"]=`Bearer ${jwt}`;
+  const res=await fetch(WORKER,{method:"POST",headers,body:JSON.stringify({type,payload})});
+  const text=await res.text();
+  let data; try{data=JSON.parse(text);}catch{data={error:text};}
+  if(!res.ok) throw new Error(data.error||`Error ${res.status}`);
+  // Also throw if Salesforce returns an error field (200 status but logical error)
+  if(data.error) throw new Error(data.error);
+  return data;
+}
+
+// Check URL params for setup link e.g. ?setup=email@test.com&token=abc123
+function getUrlParams() {
+  const params = new URLSearchParams(window.location.search);
+  return { setupEmail: params.get("setup"), setupToken: params.get("token") };
+}
+
+function App() {
+  // status: booting|login|holidays|holidaySetup|app|wrapped|accountSetup|error
+  const [status,setStatus]       = useState("booting");
+  const [jwt,setJwt]             = useState(null);
+  const [client,setClient]       = useState(null);
+  const [holidays,setHolidays]   = useState([]);
+  const [game,setGame]           = useState(null);
+  const [myPlayer,setMyPlayer]   = useState(null);
+  const [error,setError]         = useState(null);
+  const [saving,setSaving]       = useState(false);
+  const [entering,setEntering]   = useState(false);
+  const [syncing,setSyncing]     = useState(false);
+
+  // UI
+  const [tab,setTab]                 = useState("places");
+  const [sheet,setSheet]             = useState(null);
+  const [adminTab,setAdminTab]       = useState("players");
+  const [editPlayer,setEditPlayer]   = useState(null);
+  const [newPlace,setNewPlace]       = useState({name:"",points:"200",category:"Bar"});
+  const [editPlace,setEditPlace]     = useState(null);
+  const [exportTxt,setExportTxt]     = useState("");
+  const [toast,setToast]             = useState(null);
+  const [busy,setBusy]               = useState(false);
+  const [wrapConfirm,setWrapConfirm] = useState(false);
+
+  // Auth forms
+  const [authName,setAuthName]   = useState("");
+  const [authEmail,setAuthEmail] = useState("");
+  const [authPass,setAuthPass]   = useState("");
+  const [authError,setAuthError] = useState("");
+  const [authBusy,setAuthBusy]   = useState(false);
+  const [authMode,setAuthMode]   = useState("login");
+  const [authStep,setAuthStep]   = useState("email"); // email | password
+  const [showPass,setShowPass]   = useState(false);
+  const [showSetupPass,setShowSetupPass] = useState(false);
+
+  // Account setup (placeholder → full account)
+  const [setupEmail,setSetupEmail]       = useState("");
+  const [setupToken,setSetupToken]       = useState("");
+  const [setupName,setSetupName]         = useState("");
+  const [setupPass,setSetupPass]         = useState("");
+  const [setupPassConf,setSetupPassConf] = useState("");
+  const [setupError,setSetupError]       = useState("");
+  const [setupBusy,setSetupBusy]         = useState(false);
+
+  // New holiday
+  const [newHolidayName,setNewHolidayName] = useState("");
+  const [adminColor,setAdminColor]         = useState("#7B5E9C");
+
+  // Invite
+  const [confirmRemovePlayer,setConfirmRemovePlayer] = useState(null);
+  const [confirmRemovePlace,setConfirmRemovePlace]   = useState(null);
+  const [tagSelection,setTagSelection] = useState([]);
+  const [inviteEmail,setInviteEmail] = useState("");
+  const [inviteName,setInviteName]   = useState("");
+  const [inviteColor,setInviteColor] = useState("#3D9BB5");
+  const [inviting,setInviting]       = useState(false);
+
+  const gameRef   = useRef(game);
+  const jwtRef    = useRef(jwt);
+  const playerRef = useRef(myPlayer);
+  const clientRef = useRef(client);
+  useEffect(()=>{gameRef.current=game;},[game]);
+  useEffect(()=>{jwtRef.current=jwt;},[jwt]);
+  useEffect(()=>{playerRef.current=myPlayer;},[myPlayer]);
+  useEffect(()=>{clientRef.current=client;},[client]);
+
+  // ── Boot ──────────────────────────────────────────────────────
+  useEffect(()=>{
+    (async()=>{
+      // Check for setup link in URL first
+      const { setupEmail: se, setupToken: st } = getUrlParams();
+      if(se) {
+        setSetupEmail(se);
+        setSetupToken(st||"");
+        setStatus("accountSetup");
+        return;
+      }
+
+      const sj=localStorage.getItem(LS_JWT);
+      const sc=localStorage.getItem(LS_CLIENT);
+      if(sj&&sc){
+        const c=JSON.parse(sc);
+        setJwt(sj); jwtRef.current=sj;
+        setClient(c); clientRef.current=c;
+        try{
+          const res=await api("GetMyHolidays",{clientId:c.clientId},sj);
+          setHolidays(res.holidays||[]);
+          const sh=localStorage.getItem(LS_HOLIDAY);
+          const sp=localStorage.getItem(LS_PLAYER);
+          if(sh&&sp){
+            const h=res.holidays?.find(h=>h.holidayId===sh);
+            if(h){
+              const g=await api("GetHolidayState",{holidayId:sh},sj);
+              setGame(g); gameRef.current=g;
+              const p=g.players?.find(p=>p.id===sp);
+              if(p){setMyPlayer(p);playerRef.current=p;setStatus(g.wrapped?"wrapped":"app");return;}
+            }
+          }
+          setStatus("holidays");
+        }catch(e){setError(e.message);setStatus("error");}
+      }else{setStatus("login");}
+    })();
+  },[]);
+
+  // ── Auto-sync ──────────────────────────────────────────────────
+  useEffect(()=>{
+    if(status!=="app") return;
+    const iv=setInterval(async()=>{
+      if(!jwtRef.current||!gameRef.current) return;
+      try{
+        const g=await api("GetHolidayState",{holidayId:gameRef.current.holidayId},jwtRef.current);
+        setGame(g); gameRef.current=g;
+        if(g.wrapped) setStatus("wrapped");
+        if(playerRef.current){
+          const u=g.players?.find(p=>p.id===playerRef.current.id);
+          if(u){setMyPlayer(u);playerRef.current=u;}
+        }
+      }catch{}
+    },30000);
+    return()=>clearInterval(iv);
+  },[status]);
+
+  function showToast(msg,type="ok"){
+    const id=Date.now(); setToast({msg,type,id});
+    setTimeout(()=>setToast(t=>t?.id===id?null:t),3000);
+  }
+  function closeSheet(){setSheet(null);setEditPlayer(null);setEditPlace(null);setWrapConfirm(false);setTagSelection([]);setConfirmRemovePlace(null);}
+
+  async function loadGame(){
+    if(!gameRef.current) return null;
+    setSyncing(true);
+    try{
+      const g=await api("GetHolidayState",{holidayId:gameRef.current.holidayId},jwtRef.current);
+      setGame(g); gameRef.current=g; return g;
+    }catch(e){showToast(e.message,"err"); return null;}
+    finally{setSyncing(false);}
+  }
+
+  async function loadHolidays(){
+    try{
+      const res=await api("GetMyHolidays",{clientId:clientRef.current.clientId},jwtRef.current);
+      setHolidays(res.holidays||[]); return res.holidays||[];
+    }catch(e){showToast(e.message,"err"); return [];}
+  }
+
+  // ── Login ──────────────────────────────────────────────────────
+  async function doLogin(email,pass){
+    const hash=await hashPassword(pass);
+    let verify;
+    try{ verify=await api("VerifyClient",{email:email.trim(),passwordHash:hash}); }
+    catch(e){ throw new Error("Email or password incorrect"); }
+    if(!verify?.clientId) throw new Error("Email or password incorrect");
+    const tokenRes=await api("GetToken",{sub:verify.clientId,name:verify.name,email:verify.email,app:"holidayquest"});
+    const newJwt=tokenRes.token;
+    const newClient={clientId:verify.clientId,name:verify.name,email:verify.email};
+    localStorage.setItem(LS_JWT,newJwt); localStorage.setItem(LS_CLIENT,JSON.stringify(newClient));
+    setJwt(newJwt); jwtRef.current=newJwt;
+    setClient(newClient); clientRef.current=newClient;
+    const res=await api("GetMyHolidays",{clientId:verify.clientId},newJwt);
+    setHolidays(res.holidays||[]);
+    setStatus("holidays");
+  }
+
+  async function checkEmailStep(){
+    setAuthError("");
+    if(!authEmail.trim()) return setAuthError("Enter your email");
+    setAuthBusy(true);
+    try{
+      const check=await api("CheckEmail",{email:authEmail.trim()});
+      if(!check.exists){
+        // Email not found — suggest registering
+        setAuthError("No account found. Try registering instead.");
+      } else if(check.isPlaceholder){
+        // Placeholder — redirect to account setup
+        setSetupEmail(authEmail.trim());
+        setStatus("accountSetup");
+      } else {
+        // Full account — show password field
+        setAuthStep("password");
+      }
+    }catch(e){ setAuthError(e.message); }
+    setAuthBusy(false);
+  }
+
+  async function login(){
+    setAuthError("");
+    if(!authEmail.trim()||!authPass) return setAuthError("Enter email and password");
+    setAuthBusy(true);
+    try{ await doLogin(authEmail,authPass); }
+    catch(e){ if(e.message!=="REDIRECT") setAuthError(e.message); }
+    setAuthBusy(false);
+  }
+
+  async function register(){
+    setAuthError("");
+    if(!authName.trim()) return setAuthError("Enter your name");
+    if(!authEmail.trim()) return setAuthError("Enter your email");
+    if(authPass.length<6) return setAuthError("Password must be at least 6 characters");
+    setAuthBusy(true);
+    try{
+      // Check if placeholder exists first
+      const check=await api("CheckEmail",{email:authEmail.trim()});
+      if(check.exists&&check.isPlaceholder){
+        // Redirect to account setup with their email pre-filled
+        setSetupEmail(authEmail.trim());
+        setSetupName(authName.trim());
+        setStatus("accountSetup");
+        setAuthBusy(false);
+        return;
+      }
+      const hash=await hashPassword(authPass);
+      await api("CreateClient",{name:authName.trim(),email:authEmail.trim(),passwordHash:hash});
+      await doLogin(authEmail.trim(),authPass);
+    }catch(e){ setAuthError(e.message); }
+    setAuthBusy(false);
+  }
+
+  // ── Account setup (placeholder → full) ────────────────────────
+  async function setupAccount(){
+    setSetupError("");
+    if(!setupName.trim()) return setSetupError("Enter your name");
+    if(setupPass.length<6) return setSetupError("Password must be at least 6 characters");
+    if(setupPass!==setupPassConf) return setSetupError("Passwords don't match");
+    setSetupBusy(true);
+    try{
+      const hash=await hashPassword(setupPass);
+      const res=await api("SetupAccount",{
+        email:setupEmail.trim(),
+        name:setupName.trim(),
+        passwordHash:hash
+      });
+      // Auto-login after setup
+      await doLogin(setupEmail.trim(),setupPass);
+      showToast("Welcome to HolidayQuest! 🎉");
+    }catch(e){
+      if(e.message!=="REDIRECT") setSetupError(e.message);
+    }
+    setSetupBusy(false);
+  }
+
+  function logout(){
+    localStorage.clear();
+    setJwt(null); setClient(null); setGame(null); setMyPlayer(null); setHolidays([]);
+    setStatus("login");
+  }
+
+  // ── Create holiday ─────────────────────────────────────────────
+  async function createHoliday(){
+    if(!newHolidayName.trim()) return showToast("Enter a holiday name","err");
+    setSaving(true);
+    try{
+      const res=await api("CreateHoliday",{clientId:clientRef.current.clientId,name:newHolidayName.trim()},jwtRef.current);
+      // Update admin player colour
+      await api("UpdatePlayer",{playerId:res.playerId,color:adminColor},jwtRef.current);
+      const g=await api("GetHolidayState",{holidayId:res.holidayId},jwtRef.current);
+      setGame(g); gameRef.current=g;
+      localStorage.setItem(LS_HOLIDAY,res.holidayId);
+      localStorage.setItem(LS_PLAYER,res.playerId);
+      const p=g.players?.find(p=>p.id===res.playerId);
+      if(p){setMyPlayer(p);playerRef.current=p;}
+      await loadHolidays();
+      setNewHolidayName("");
+      setStatus("holidaySetup");
+      showToast(`${res.name} created! 🎉`);
+    }catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  // ── Enter existing holiday ─────────────────────────────────────
+  async function enterHoliday(h){
+    setEntering(h.holidayId);
+    try{
+      const g=await api("GetHolidayState",{holidayId:h.holidayId},jwtRef.current);
+      setGame(g); gameRef.current=g;
+      localStorage.setItem(LS_HOLIDAY,h.holidayId);
+      localStorage.setItem(LS_PLAYER,h.playerId);
+      const p=g.players?.find(p=>p.id===h.playerId);
+      if(p){setMyPlayer(p);playerRef.current=p;}
+      setStatus(g.wrapped?"wrapped":"app");
+    }catch(e){showToast(e.message,"err");}
+    setEntering(false);
+  }
+
+  // ── Invite player ──────────────────────────────────────────────
+  async function invitePlayer(){
+    if(!inviteEmail.trim()) return showToast("Enter an email","err");
+    setInviting(true);
+    try{
+      const res=await api("AddPlayerByEmail",{
+        holidayId:gameRef.current.holidayId,
+        email:inviteEmail.trim(),
+        name:inviteName.trim()||null,
+        color:inviteColor
+      },jwtRef.current);
+      await loadGame();
+      setInviteEmail(""); setInviteName("");
+      if(res.wasCreated){
+        showToast(`Invite sent to ${res.email} — they need to set up their account 📧`);
+      } else {
+        showToast(`${res.playerName} added! They'll see this holiday when they log in 🎉`);
+      }
+    }catch(e){showToast(e.message,"err");}
+    setInviting(false);
+  }
+
+  // ── Game actions ───────────────────────────────────────────────
+  async function checkIn(place){
+    if(busy||saving) return;
+    if(isVisited(myPlayer?.id,place.id)) return showToast("Already visited!","err");
+    setBusy(true);
+    try{await api("CreateCheckin",{playerId:myPlayer.id,placeId:place.id,taggedById:null},jwtRef.current);await loadGame();showToast(`+${place.points} pts · ${place.name}`);}
+    catch(e){showToast(e.message,"err");}
+    setBusy(false);
+  }
+
+  function toggleTag(playerId){
+    setTagSelection(sel=>sel.includes(playerId)?sel.filter(id=>id!==playerId):[...sel,playerId]);
+  }
+
+  async function submitTags(){
+    const place=sheet?.data; if(!place||tagSelection.length===0) return;
+    closeSheet();
+    setTagSelection([]);
+    try{
+      // Check in yourself first if not already visited
+      if(!isVisited(myPlayer.id,place.id)){
+        await api("CreateCheckin",{playerId:myPlayer.id,placeId:place.id,taggedById:null},jwtRef.current);
+      }
+      // Tag each selected player (skip if already checked in)
+      for(const taggedId of tagSelection){
+        if(!isVisited(taggedId,place.id)){
+          await api("CreateCheckin",{playerId:taggedId,placeId:place.id,taggedById:myPlayer.id},jwtRef.current);
+        }
+      }
+      await loadGame();
+      const names=tagSelection.map(id=>gameRef.current.players?.find(p=>p.id===id)?.name).filter(Boolean);
+      showToast(`Checked in & tagged ${names.join(", ")} at ${place.name}`);
+    }
+    catch(e){showToast(e.message,"err");}
+  }
+
+  async function submitAddPlace(){
+    const name=newPlace.name.trim(); if(!name) return showToast("Enter a name","err");
+    setSaving(true);
+    try{await api("AddPlace",{holidayId:gameRef.current.holidayId,name,points:parseInt(newPlace.points)||200,category:newPlace.category},jwtRef.current);setNewPlace({name:"",points:"200",category:"Bar"});closeSheet();await loadGame();showToast(`Added ${name}`);}
+    catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  async function removePlace(placeId){
+    setSaving(true);
+    try{await api("RemovePlace",{placeId},jwtRef.current);await loadGame();showToast("Removed");}
+    catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  async function savePlaceEdit(){
+    if(!editPlace) return;
+    const name=editPlace.name.trim(); if(!name) return showToast("Name can't be empty","err");
+    setSaving(true);
+    try{
+      await api("UpdatePlace",{
+        placeId:editPlace.id,
+        name,
+        points:parseInt(editPlace.points)||200,
+        category:editPlace.category
+      },jwtRef.current);
+      await loadGame();
+      setEditPlace(null);
+      showToast("Place updated");
+    }catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  async function savePlayerEdit(){
+    if(!editPlayer) return;
+    const name=editPlayer.name.trim(); if(!name) return showToast("Name can't be empty","err");
+    setSaving(true);
+    try{await api("UpdatePlayer",{playerId:editPlayer.id,name,color:editPlayer.color},jwtRef.current);await loadGame();setEditPlayer(null);showToast("Saved");}
+    catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  async function removePlayer(playerId){
+    setSaving(true);
+    try{await api("RemovePlayer",{playerId},jwtRef.current);await loadGame();showToast("Removed");}
+    catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  async function wrapUp(){
+    setSaving(true);
+    try{await api("WrapHoliday",{holidayId:gameRef.current.holidayId},jwtRef.current);await loadGame();setWrapConfirm(false);setSheet(null);setStatus("wrapped");showToast("Holiday wrapped! 🎉");}
+    catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  async function reopenHoliday(){
+    setSaving(true);
+    try{await api("ReopenHoliday",{holidayId:gameRef.current.holidayId},jwtRef.current);await loadGame();setStatus("app");showToast("Holiday reopened!");}
+    catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  function buildExport(){
+    const {players,places,checkins}=gameRef.current;
+    const lines=["PLAYER,PLACE,TYPE,POINTS,TIME"];
+    checkins.forEach(c=>{
+      const player=players.find(p=>p.id===c.playerId),place=places.find(p=>p.id===c.placeId),tagger=c.isTag?players.find(p=>p.id===c.taggedById):null;
+      if(player&&place) lines.push(`${player.name},${place.name},${c.isTag?`Tagged by ${tagger?.name||"?"}`:"Check-in"},${place.points},${new Date(c.timestamp).toLocaleString()}`);
+    });
+    lines.push("","SUMMARY");
+    players.forEach(p=>{const s=userStats(p.id);lines.push(`${p.name},${s.points} pts,${s.visited} places,${s.checkins} check-ins,${s.tagged} tagged`);});
+    setExportTxt(lines.join("\n")); setSheet({type:"export"});
+  }
+
+  function userStats(uid){
+    if(!game) return {points:0,visited:0,checkins:0,tagged:0};
+    const mine=game.checkins.filter(c=>c.playerId===uid);
+    const visited=new Set(mine.map(c=>c.placeId));
+    const points=mine.reduce((a,c)=>a+(game.places.find(p=>p.id===c.placeId)?.points||0),0);
+    return {points,visited:visited.size,checkins:mine.filter(c=>!c.isTag).length,tagged:mine.filter(c=>c.isTag).length};
+  }
+  function isVisited(uid,placeId){return game?.checkins.some(c=>c.playerId===uid&&c.placeId===placeId);}
+
+  const myStats     = myPlayer?userStats(myPlayer.id):{points:0,visited:0,checkins:0,tagged:0};
+  const leaderboard = (game?.players||[]).map(p=>({...p,...userStats(p.id)})).sort((a,b)=>b.points-a.points);
+  const isAdmin     = myPlayer?.isAdmin;
+  const takenColors = (game?.players||[]).map(p=>p.color);
+
+  // ══════════════════════════════════════════════════════════════
+  // SCREENS
+  // ══════════════════════════════════════════════════════════════
+
+  if(status==="booting") return <div className="hq-center"><div className="hq-spin"/><div style={{marginTop:12,opacity:.5,fontSize:13}}>Loading…</div></div>;
+
+  if(status==="error") return <div className="hq-center">
+    <div style={{fontSize:32,marginBottom:12}}>⚠️</div>
+    <div style={{fontSize:13,opacity:.7,marginBottom:20,textAlign:"center",padding:"0 30px"}}>{error}</div>
+    <button className="hq-btn-dark" style={{width:180}} onClick={()=>{setStatus("login");setError(null);}}>Back to Login</button>
+  </div>;
+
+  // ── AUTH ───────────────────────────────────────────────────────
+  if(status==="login") return <div className="hq-login">
+    <div className="hq-sun"/>
+    <div className="hq-login-inner">
+      <div className="hq-poster"><BenidormMap/></div>
+      <div className="hq-eyebrow">— HOLIDAYQUEST —</div>
+      <h1 className="hq-title"><span className="t1">Holiday</span><span className="t2">Quest</span></h1>
+      <div className="hq-auth-box">
+        <div className="hq-auth-tabs">
+          <button className={"hq-auth-tab"+(authMode==="login"?" on":"")} onClick={()=>{setAuthMode("login");setAuthError("");setAuthStep("email");}}>Login</button>
+          <button className={"hq-auth-tab"+(authMode==="register"?" on":"")} onClick={()=>{setAuthMode("register");setAuthError("");setAuthStep("email");}}>Register</button>
+        </div>
+        {authMode==="register"&&<input className="hq-input" placeholder="Your name" value={authName} onChange={e=>setAuthName(e.target.value)}/>}
+        <input className="hq-input" placeholder="Email" type="email" value={authEmail} onChange={e=>{setAuthEmail(e.target.value);setAuthStep("email");setAuthError("");}}
+          onKeyDown={e=>e.key==="Enter"&&(authMode==="register"?null:checkEmailStep())}/>
+        {(authMode==="register"||authStep==="password")&&
+          <div className="hq-pass-wrap">
+            <input className="hq-input" placeholder="Password" type={showPass?"text":"password"} value={authPass}
+              onChange={e=>setAuthPass(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&(authMode==="login"?login():register())}
+              autoFocus={authStep==="password"}/>
+            <button className="hq-eye-btn" onMouseDown={()=>setShowPass(true)} onMouseUp={()=>setShowPass(false)} onTouchStart={()=>setShowPass(true)} onTouchEnd={()=>setShowPass(false)} type="button">{showPass?"🙈":"👁️"}</button>
+          </div>
+        }
+        {authError&&<div className="hq-auth-error">{authError}</div>}
+        {authMode==="login"&&authStep==="email"&&
+          <button className="hq-btn-welcome" disabled={authBusy||!authEmail.trim()} onClick={checkEmailStep}>
+            {authBusy?"Checking…":"Continue →"}
+          </button>
+        }
+        {authMode==="login"&&authStep==="password"&&
+          <button className="hq-btn-welcome" disabled={authBusy} onClick={login}>
+            {authBusy?"Logging in…":"Login →"}
+          </button>
+        }
+        {authMode==="register"&&
+          <button className="hq-btn-welcome" disabled={authBusy} onClick={register}>
+            {authBusy?"Please wait…":"Create account →"}
+          </button>
+        }
+      </div>
+    </div>
+  </div>;
+
+  // ── ACCOUNT SETUP (placeholder → full account) ─────────────────
+  if(status==="accountSetup") return <div className="hq-login">
+    <div className="hq-sun"/>
+    <div className="hq-login-inner">
+      <div className="hq-eyebrow">— HOLIDAYQUEST —</div>
+      <h1 className="hq-title"><span className="t1">Holiday</span><span className="t2">Quest</span></h1>
+      <div className="hq-auth-box">
+        <div className="hq-welcome-emoji">🎉</div>
+        <div className="hq-welcome-title">You've been invited!</div>
+        <div className="hq-welcome-sub">Set up your account to join the holiday.</div>
+        <input className="hq-input" placeholder="Your name" value={setupName} onChange={e=>setSetupName(e.target.value)}/>
+        <input className="hq-input" placeholder="Email" type="email" value={setupEmail} onChange={e=>setSetupEmail(e.target.value)} readOnly={!!setupToken}/>
+        <div className="hq-pass-wrap">
+          <input className="hq-input" placeholder="Choose a password" type={showSetupPass?"text":"password"} value={setupPass} onChange={e=>setSetupPass(e.target.value)}/>
+          <button className="hq-eye-btn" onMouseDown={()=>setShowSetupPass(true)} onMouseUp={()=>setShowSetupPass(false)} onTouchStart={()=>setShowSetupPass(true)} onTouchEnd={()=>setShowSetupPass(false)} type="button">{showSetupPass?"🙈":"👁️"}</button>
+        </div>
+        <input className="hq-input" placeholder="Confirm password" type={showSetupPass?"text":"password"} value={setupPassConf} onChange={e=>setSetupPassConf(e.target.value)} onKeyDown={e=>e.key==="Enter"&&setupAccount()}/>
+        {setupError&&<div className="hq-auth-error">{setupError}</div>}
+        <button className="hq-btn-welcome" disabled={setupBusy} onClick={setupAccount}>
+          {setupBusy?"Setting up…":"Set up my account →"}
+        </button>
+      </div>
+      <button className="hq-link-btn" style={{textAlign:"center"}} onClick={()=>setStatus("login")}>← Back to login</button>
+    </div>
+  </div>;
+
+  // ── MY HOLIDAYS ────────────────────────────────────────────────
+  if(status==="holidays") return <div className="hq-login">
+    <div className="hq-sun"/>
+    <div className="hq-login-inner">
+      <div className="hq-eyebrow">— HOLIDAYQUEST —</div>
+      <h1 className="hq-title"><span className="t1">Holiday</span><span className="t2">Quest</span></h1>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+        <p className="hq-sub">Welcome, <b>{client?.name}</b></p>
+        <button className="hq-link-btn" onClick={logout}>Sign out</button>
+      </div>
+
+      <div className="hq-auth-box">
+        <div className="hq-welcome-emoji">🌴</div>
+        <div className="hq-welcome-title">New Holiday</div>
+        <input className="hq-input" placeholder="e.g. Benidorm 2026" value={newHolidayName}
+          onChange={e=>setNewHolidayName(e.target.value)} onKeyDown={e=>e.key==="Enter"&&createHoliday()}/>
+        <div>
+          <div className="hq-field-label">Your colour</div>
+          <div className="hq-color-row">
+            {COLORS.map(c=><button key={c} className={"hq-color-dot"+(adminColor===c?" sel":"")} style={{background:c}} onClick={()=>setAdminColor(c)}/>)}
+          </div>
+        </div>
+        <button className="hq-btn-welcome" disabled={saving||!newHolidayName.trim()} onClick={createHoliday}>
+          {saving?"Creating…":"Create Holiday →"}
+        </button>
+      </div>
+
+      {holidays.length>0&&<>
+        <div className="hq-eyebrow" style={{marginTop:4}}>— MY HOLIDAYS —</div>
+        <div className="hq-list" style={{marginTop:0}}>
+          {holidays.map(h=>(
+            <button key={h.holidayId} className="hq-holiday-card" disabled={!!entering} onClick={()=>enterHoliday(h)}>
+              <div className="hq-av" style={{background:h.color||"#888",width:38,height:38,fontSize:17}}>{initial(client?.name)}</div>
+              <div style={{flex:1}}>
+                <div className="hq-holiday-name">{h.name}</div>
+                <div className="hq-holiday-meta">{h.wrapped?"Wrapped":"Active"} · {h.tag==="created"?"You created this":"You were invited"}</div>
+              </div>
+              <span className={"hq-tag hq-tag-"+(h.tag==="created"?"created":"invited")}>{h.tag==="created"?"Created":"Invited"}</span>
+            </button>
+          ))}
+        </div>
+      </>}
+
+      {holidays.length===0&&<div className="hq-empty" style={{opacity:.4,padding:"20px 0"}}>
+        No holidays yet — create one above or ask a friend to invite you.
+      </div>}
+    </div>
+  </div>;
+
+  // ── HOLIDAY SETUP (after creating — invite players) ────────────
+  if(status==="holidaySetup") return <div className="hq-login">
+    <div className="hq-sun"/>
+    <div className="hq-login-inner">
+      <div className="hq-eyebrow">— {(game?.name||"").toUpperCase()} —</div>
+      <h1 className="hq-title"><span className="t1">Holiday</span><span className="t2">Quest</span></h1>
+
+      <div className="hq-auth-box">
+        <div className="hq-welcome-emoji">👥</div>
+        <div className="hq-welcome-title">Invite your crew</div>
+        <div className="hq-welcome-sub">Add friends by email. If they're not registered yet, they'll get an invite to set up their account.</div>
+
+        {(game?.players||[]).length>0&&<div className="hq-player-list">
+          {(game?.players||[]).map(p=><div key={p.id} className="hq-player-pill">
+            <span className="hq-av" style={{background:p.color,width:28,height:28,fontSize:13}}>{initial(p.name)}</span>
+            <span style={{fontSize:13,fontWeight:600,flex:1}}>{p.name}</span>
+            {p.isAdmin&&<span className="hq-admin-chip">admin</span>}
+          </div>)}
+        </div>}
+
+        <input className="hq-input" placeholder="Their name (e.g. Kim)" value={inviteName}
+          onChange={e=>setInviteName(e.target.value)}/>
+        <input className="hq-input" placeholder="friend@email.com" type="email"
+          value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)}
+          onKeyDown={e=>e.key==="Enter"&&invitePlayer()}/>
+        <div>
+          <div className="hq-field-label">Their colour</div>
+          <div className="hq-color-row">
+            {COLORS.map(c=>{const taken=takenColors.includes(c);return(
+              <button key={c} className={"hq-color-dot"+(inviteColor===c?" sel":"")+(taken?" taken":"")}
+                style={{background:c}} disabled={taken} onClick={()=>!taken&&setInviteColor(c)}/>
+            );})}
+          </div>
+        </div>
+        <button className="hq-btn-dark" disabled={inviting||!inviteEmail.trim()} onClick={invitePlayer}>
+          {inviting?"Adding…":"+ Invite Player"}
+        </button>
+      </div>
+
+      <button className="hq-btn-welcome" onClick={()=>setStatus("app")}>Let's go! →</button>
+
+    </div>
+    {toast&&<div className={"hq-toast"+(toast.type==="err"?" err":"")}>{toast.msg}</div>}
+  </div>;
+
+  // ── WRAPPED ────────────────────────────────────────────────────
+  if(status==="wrapped") return <div className="hq-app">
+    <header className="hq-header">
+      <div className="hq-htop">
+        <button className="hq-back-btn" onClick={()=>{setStatus("holidays");loadHolidays();}}>← Holidays</button>
+        <div className="hq-logo"><MiniMap/><span className="hq-logo-txt">{game?.name}</span></div>
+        <div style={{display:"flex",gap:8}}>
+          {isAdmin&&<button className="hq-icon-btn" title="Reopen" onClick={reopenHoliday}>↩️</button>}
+          {isAdmin&&<button className="hq-icon-btn" onClick={buildExport}>📊</button>}
+        </div>
+      </div>
+      <div className="hq-hero" style={{"--c":myPlayer?.color||"#888"}}>
+        <div>
+          <div className="hq-hlabel">FINAL SCORE</div>
+          <div className="hq-hname">{myPlayer?.name}</div>
+          <div className="hq-hstats"><b>{myStats.visited}</b> places · <b>{myStats.points}</b> pts</div>
+        </div>
+        <div className="hq-hpts"><div className="hq-hpts-n">{myStats.points.toLocaleString()}</div><div className="hq-hpts-l">PTS</div></div>
+      </div>
+      <div className="hq-wrapped-banner">🎉 Holiday wrapped — final results!</div>
+    </header>
+    <main className="hq-main">
+      <Podium leaderboard={leaderboard}/>
+      <div className="hq-list">{leaderboard.map((p,i)=>(
+        <div key={p.id} className={"hq-rank-row"+(p.id===myPlayer?.id?" me":"")}>
+          <div className="hq-rank-n">{String(i+1).padStart(2,"0")}</div>
+          <div className="hq-av" style={{background:p.color,width:36,height:36,fontSize:16}}>{initial(p.name)}</div>
+          <div style={{flex:1}}><div className="hq-rank-name">{p.name}</div><div className="hq-rank-meta">{p.visited} places · {p.checkins} ci · {p.tagged} tagged</div></div>
+          <div className="hq-rank-pts">{p.points.toLocaleString()}<span>pts</span></div>
+        </div>
+      ))}</div>
+      <div className="hq-s-eye" style={{marginTop:20,marginBottom:10}}>ACTIVITY LOG</div>
+      <div className="hq-list"><ActivityLog game={game}/></div>
+    </main>
+    {sheet?.type==="export"&&<div className="hq-overlay" onClick={closeSheet}><div className="hq-sheet" onClick={e=>e.stopPropagation()}><div className="hq-handle"/><ExportSheet txt={exportTxt} onClose={closeSheet} onCopy={()=>navigator.clipboard?.writeText(exportTxt).then(()=>showToast("Copied!")).catch(()=>showToast("Copy manually","err"))}/></div></div>}
+    {toast&&<div className={"hq-toast"+(toast.type==="err"?" err":"")}>{toast.msg}</div>}
+  </div>;
+
+  // ── MAIN APP ───────────────────────────────────────────────────
+  return <div className="hq-app">
+    <header className="hq-header">
+      <div className="hq-htop">
+        <button className="hq-back-btn" onClick={()=>{setStatus("holidays");loadHolidays();}}>← Holidays</button>
+        <div className="hq-logo">
+          <MiniMap/>
+          <span className="hq-logo-txt">{game?.name}</span>
+
+
+        </div>
+        <div style={{display:"flex",gap:8}}>
+          {isAdmin&&<button className="hq-icon-btn" onClick={()=>{setAdminTab("players");setSheet({type:"admin"});}}>⚙️</button>}
+          <button className="hq-icon-btn" onClick={()=>loadGame()} title="Sync">{syncing?"⏳":"🔄"}</button>
+        </div>
+      </div>
+      <div className="hq-hero" style={{"--c":myPlayer?.color||"#888"}}>
+        <div>
+          <div className="hq-hlabel">EXPLORER</div>
+          <div className="hq-hname">{myPlayer?.name}</div>
+          <div className="hq-hstats"><b>{myStats.visited}</b>/{game?.places?.length||0} places · <b>{myStats.checkins}</b> check-ins</div>
+        </div>
+        <div className="hq-hpts"><div className="hq-hpts-n">{myStats.points.toLocaleString()}</div><div className="hq-hpts-l">PTS</div></div>
+      </div>
+      <nav className="hq-tabs">
+        {[["places","Places"],["feed","Activity"],["ranks","Ranking"]].map(([id,lbl])=>(
+          <button key={id} className={"hq-tab"+(tab===id?" on":"")} onClick={()=>setTab(id)}>{lbl}</button>
+        ))}
+      </nav>
+    </header>
+
+    <main className="hq-main">
+      {tab==="places"&&<>
+        <button className="hq-add-btn" onClick={()=>setSheet({type:"addPlace"})}>+ Add a place</button>
+        <div className="hq-list">{(game?.places||[]).map((p,i)=>{
+          const visited=isVisited(myPlayer?.id,p.id);
+          const visitors=(game?.players||[]).filter(u=>game.checkins.some(c=>c.playerId===u.id&&c.placeId===p.id));
+          return <article key={p.id} className={"hq-card"+(visited?" done":"")} style={{animationDelay:i*0.04+"s"}}>
+            <div className="hq-card-emoji">{CAT_EMOJI[p.category]||"📍"}</div>
+            <div className="hq-card-body">
+              <div className="hq-card-cat">{p.category}</div>
+              <div className="hq-card-name">{p.name}</div>
+              <div className="hq-card-meta">
+                <span className="hq-pts">+{p.points}</span>
+                {visitors.length>0&&<div className="hq-avas">{visitors.slice(0,4).map(v=><span key={v.id} className="hq-av" style={{background:v.color,width:22,height:22,fontSize:11}}>{initial(v.name)}</span>)}</div>}
+              </div>
+            </div>
+            <div className="hq-card-actions">
+              {!visited?<button className="hq-btn-go" disabled={busy||saving} onClick={()=>checkIn(p)}>{busy?"…":"Check in"}</button>:<div className="hq-stamp">DONE</div>}
+              <button className="hq-btn-tag" onClick={()=>setSheet({type:"tag",data:p})}>Check in & tag</button>
+            </div>
+          </article>;
+        })}</div>
+        {(game?.places||[]).length===0&&<div className="hq-empty">📍<br/>No places yet — add some!</div>}
+      </>}
+
+      {tab==="feed"&&<>
+        {(!game?.checkins||game.checkins.length===0)&&<div className="hq-empty">🍺<br/>No activity yet — get out there!</div>}
+        <div className="hq-list"><ActivityLog game={game}/></div>
+      </>}
+
+      {tab==="ranks"&&<>
+        <Podium leaderboard={leaderboard}/>
+        <div className="hq-list">{leaderboard.map((p,i)=>(
+          <div key={p.id} className={"hq-rank-row"+(p.id===myPlayer?.id?" me":"")}>
+            <div className="hq-rank-n">{String(i+1).padStart(2,"0")}</div>
+            <div className="hq-av" style={{background:p.color,width:36,height:36,fontSize:16}}>{initial(p.name)}</div>
+            <div style={{flex:1}}><div className="hq-rank-name">{p.name}</div><div className="hq-rank-meta">{p.visited} places · {p.checkins} ci · {p.tagged} tagged</div></div>
+            <div className="hq-rank-pts">{p.points.toLocaleString()}<span>pts</span></div>
+          </div>
+        ))}</div>
+      </>}
+    </main>
+
+    {sheet&&<div className="hq-overlay" onClick={closeSheet}><div className="hq-sheet" onClick={e=>e.stopPropagation()}>
+      <div className="hq-handle"/>
+
+      {sheet.type==="tag"&&<>
+        <div className="hq-s-eye">CHECK IN & TAG</div>
+        <div className="hq-s-title">{sheet.data?.name}</div>
+        <div className="hq-s-sub">Select everyone who was here — you'll all be checked in.</div>
+        {(game?.players||[])
+          .filter(p=>p.id!==myPlayer?.id && !isVisited(p.id,sheet.data?.id))
+          .map(p=>{
+            const sel=tagSelection.includes(p.id);
+            return <button key={p.id} className={"hq-tag-row"+(sel?" selected":"")} onClick={()=>toggleTag(p.id)}>
+              <div className="hq-av" style={{background:p.color,width:38,height:38,fontSize:17}}>{initial(p.name)}</div>
+              <div className="hq-tag-nm">{p.name}</div>
+              {sel?<div className="hq-tag-check">✓</div>:<div className="hq-pts">+{sheet.data?.points}</div>}
+            </button>;
+          })
+        }
+        {(game?.players||[]).filter(p=>p.id!==myPlayer?.id&&!isVisited(p.id,sheet.data?.id)).length===0&&
+          <div className="hq-empty" style={{padding:"16px 0",opacity:.4}}>Everyone here has already visited!</div>
+        }
+        <button className="hq-btn-dark" disabled={tagSelection.length===0} onClick={submitTags}>
+          Tag {tagSelection.length>0?tagSelection.length+" person"+(tagSelection.length>1?"s":""):"someone"}
+        </button>
+        <button className="hq-btn-cancel" onClick={()=>{closeSheet();setTagSelection([]);}}>Cancel</button>
+      </>}
+
+      {sheet.type==="addPlace"&&<>
+        <div className="hq-s-eye">ADD A PLACE</div>
+        <div className="hq-s-title">New venue</div>
+        <div className="hq-form">
+          <input className="hq-input" placeholder="Venue name" value={newPlace.name} onChange={e=>setNewPlace(p=>({...p,name:e.target.value}))}/>
+          <select className="hq-input" value={newPlace.category} onChange={e=>setNewPlace(p=>({...p,category:e.target.value}))}>
+            {["Bar","Pub","Club","Restaurant","Other"].map(c=><option key={c}>{c}</option>)}
+          </select>
+          <input className="hq-input" type="number" placeholder="Points" step="5" min="0" value={newPlace.points} onChange={e=>setNewPlace(p=>({...p,points:e.target.value}))}/>
+        </div>
+        <button className="hq-btn-dark" disabled={saving} onClick={submitAddPlace}>{saving?"Saving…":"Add Place"}</button>
+        <button className="hq-btn-cancel" onClick={closeSheet}>Cancel</button>
+      </>}
+
+      {sheet.type==="admin"&&<>
+        <div className="hq-s-eye">ADMIN — {game?.name}</div>
+        <div className="hq-admin-tabs">
+          <button className={"hq-atab"+(adminTab==="players"?" on":"")} onClick={()=>setAdminTab("players")}>Players</button>
+          <button className={"hq-atab"+(adminTab==="places"?" on":"")} onClick={()=>setAdminTab("places")}>Places</button>
+          <button className="hq-atab" onClick={buildExport}>Export</button>
+        </div>
+
+        {adminTab==="players"&&<>{editPlayer?
+          <div className="hq-edit-user">
+            <div className="hq-s-sub">Editing: {editPlayer.name}</div>
+            <input className="hq-input" placeholder="Name" value={editPlayer.name} onChange={e=>setEditPlayer(p=>({...p,name:e.target.value}))}/>
+            <div className="hq-color-row">{COLORS.map(c=><button key={c} className={"hq-color-dot"+(editPlayer.color===c?" sel":"")} style={{background:c}} onClick={()=>setEditPlayer(p=>({...p,color:c}))}/>)}</div>
+            <button className="hq-btn-dark" disabled={saving} onClick={savePlayerEdit}>{saving?"Saving…":"Save"}</button>
+            <button className="hq-btn-cancel" onClick={()=>setEditPlayer(null)}>Back</button>
+          </div>:
+          <>
+            {(game?.players||[]).map(p=><div key={p.id} className="hq-user-row">
+              <div className="hq-av" style={{background:p.color,width:36,height:36,fontSize:16}}>{initial(p.name)}</div>
+              <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.isAdmin?"admin · ":""}{userStats(p.id).points} pts</div></div>
+              <button className="hq-btn-sm" onClick={()=>setEditPlayer({...p})}>Edit</button>
+              {!p.isAdmin&&<button className="hq-btn-sm danger" onClick={()=>setConfirmRemovePlayer(p)}>✕</button>}
+            </div>)}
+            {confirmRemovePlayer&&<div className="hq-confirm-box">
+              <div className="hq-confirm-msg">Remove <b>{confirmRemovePlayer.name}</b> from this holiday? Their check-ins will also be deleted.</div>
+              <div className="hq-confirm-btns">
+                <button className="hq-btn-cancel" style={{flex:1,padding:"10px"}} onClick={()=>setConfirmRemovePlayer(null)}>Cancel</button>
+                <button className="hq-btn-sm danger" style={{flex:1,padding:"10px"}} onClick={()=>{removePlayer(confirmRemovePlayer.id);setConfirmRemovePlayer(null);}}>Remove</button>
+              </div>
+            </div>}
+            <div className="hq-invite-section">
+              <div className="hq-wrap-label">Invite a player</div>
+              <input className="hq-input" placeholder="Their name (e.g. Kim)"
+                value={inviteName} onChange={e=>setInviteName(e.target.value)}
+                style={{marginBottom:8}}/>
+              <input className="hq-input" placeholder="friend@email.com" type="email"
+                value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)}
+                onKeyDown={e=>e.key==="Enter"&&invitePlayer()}
+                style={{marginBottom:8}}/>
+              <div className="hq-color-row" style={{marginBottom:8}}>
+                {COLORS.map(c=>{const taken=takenColors.includes(c);return(
+                  <button key={c} className={"hq-color-dot"+(inviteColor===c?" sel":"")+(taken?" taken":"")}
+                    style={{background:c}} disabled={taken} onClick={()=>!taken&&setInviteColor(c)}/>
+                );})}
+              </div>
+              <button className="hq-btn-dark" disabled={inviting||!inviteEmail.trim()} onClick={invitePlayer}>
+                {inviting?"Adding…":"+ Invite Player"}
+              </button>
+            </div>
+          </>
+        }</>}
+
+        {adminTab==="places"&&<>{editPlace?
+          <div className="hq-edit-user">
+            <div className="hq-s-sub">Editing: {editPlace.name}</div>
+            <input className="hq-input" placeholder="Venue name" value={editPlace.name}
+              onChange={e=>setEditPlace(p=>({...p,name:e.target.value}))}/>
+            <select className="hq-input" value={editPlace.category}
+              onChange={e=>setEditPlace(p=>({...p,category:e.target.value}))}>
+              {["Bar","Pub","Club","Restaurant","Other"].map(c=><option key={c}>{c}</option>)}
+            </select>
+            <input className="hq-input" type="number" step="5" min="0" placeholder="Points"
+              value={editPlace.points} onChange={e=>setEditPlace(p=>({...p,points:e.target.value}))}/>
+            <button className="hq-btn-dark" disabled={saving} onClick={savePlaceEdit}>{saving?"Saving…":"Save"}</button>
+            <button className="hq-btn-cancel" onClick={()=>setEditPlace(null)}>Back</button>
+          </div>:
+          <>
+            {(game?.places||[]).map(p=><div key={p.id} className="hq-user-row">
+              <div style={{fontSize:22}}>{CAT_EMOJI[p.category]||"📍"}</div>
+              <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.category} · {p.points} pts</div></div>
+              <button className="hq-btn-sm" onClick={()=>setEditPlace({...p,points:String(p.points)})}>Edit</button>
+              <button className="hq-btn-sm danger" onClick={()=>setConfirmRemovePlace(p)}>✕</button>
+            </div>)}
+            {confirmRemovePlace&&<div className="hq-confirm-box">
+              <div className="hq-confirm-msg">Remove <b>{confirmRemovePlace.name}</b>? Check-ins for this place will also be deleted.</div>
+              <div className="hq-confirm-btns">
+                <button className="hq-btn-cancel" style={{flex:1,padding:"10px"}} onClick={()=>setConfirmRemovePlace(null)}>Cancel</button>
+                <button className="hq-btn-sm danger" style={{flex:1,padding:"10px"}} onClick={()=>{removePlace(confirmRemovePlace.id);setConfirmRemovePlace(null);}}>Remove</button>
+              </div>
+            </div>}
+            <button className="hq-btn-dark" style={{marginTop:12}} onClick={()=>{closeSheet();setTimeout(()=>setSheet({type:"addPlace"}),200);}}>+ Add Place</button>
+          </>
+        }</>}
+
+        <div className="hq-wrap-section">
+          <div className="hq-wrap-label">End of holiday</div>
+          {!wrapConfirm?
+            <button className="hq-btn-wrap" onClick={()=>setWrapConfirm(true)}>🎉 Wrap Up Holiday</button>:
+            <div className="hq-wrap-confirm">
+              <div className="hq-wrap-confirm-msg">Are you sure? Players will only see final results.</div>
+              <div className="hq-wrap-confirm-btns">
+                <button className="hq-btn-cancel" onClick={()=>setWrapConfirm(false)}>Cancel</button>
+                <button className="hq-btn-wrap-yes" onClick={wrapUp}>{saving?"Wrapping…":"Yes, wrap it!"}</button>
+              </div>
+            </div>
+          }
+        </div>
+        <button className="hq-btn-cancel" style={{marginTop:8}} onClick={closeSheet}>Close</button>
+      </>}
+
+      {sheet.type==="export"&&<ExportSheet txt={exportTxt} onClose={closeSheet} onCopy={()=>navigator.clipboard?.writeText(exportTxt).then(()=>showToast("Copied!")).catch(()=>showToast("Copy manually","err"))}/>}
+    </div></div>}
+
+    {toast&&<div className={"hq-toast"+(toast.type==="err"?" err":"")}>{toast.msg}</div>}
+  </div>;
+}
+
+// ── Sub-components ─────────────────────────────────────────────
+function ActivityLog({game}){
+  if(!game) return null;
+  return [...game.checkins].sort((a,b)=>b.timestamp-a.timestamp).map((c,i)=>{
+    const player=game.players.find(p=>p.id===c.playerId),place=game.places.find(p=>p.id===c.placeId),tagger=c.isTag?game.players.find(p=>p.id===c.taggedById):null;
+    if(!player||!place) return null;
+    return <article key={c.id} className={"hq-feed-row"+(c.isTag?" tag":"")} style={{animationDelay:i*0.03+"s"}}>
+      <span className="hq-av" style={{background:c.isTag?(tagger?.color||"#888"):player.color,width:36,height:36,fontSize:16}}>{initial(c.isTag?tagger?.name:player.name)}</span>
+      <div>
+        {c.isTag?<div className="hq-feed-line"><b>{tagger?.name}</b> tagged <b style={{color:player.color}}>{player.name}</b> at <b>{place.name}</b></div>
+               :<div className="hq-feed-line"><b>{player.name}</b> checked in at <b>{place.name}</b></div>}
+        <div className="hq-feed-meta">{timeAgo(c.timestamp)} · <span className="hq-pts">+{place.points} pts</span></div>
+      </div>
+    </article>;
+  });
+}
+
+function Podium({leaderboard}){
+  return <div className="hq-podium">{[1,0,2].map(idx=>{
+    const u=leaderboard[idx]; if(!u) return null;
+    const h={0:110,1:78,2:58}[idx];
+    return <div key={u.id} className="hq-pod-col">
+      <div className="hq-pod-av" style={{background:u.color}}>{initial(u.name)}</div>
+      <div className="hq-pod-name">{u.name}</div>
+      <div className="hq-pod-pts">{u.points}</div>
+      <div className="hq-pod-block" style={{height:h,background:u.color}}><span>{idx+1}</span></div>
+    </div>;
+  })}</div>;
+}
+
+function ExportSheet({txt,onClose,onCopy}){
+  return <><div className="hq-s-eye">DATA EXPORT</div><div className="hq-s-title">All activity</div>
+    <textarea className="hq-export" readOnly value={txt}/>
+    <button className="hq-btn-dark" onClick={onCopy}>Copy to clipboard</button>
+    <button className="hq-btn-cancel" onClick={onClose}>Close</button>
+  </>;
+}
+
+function MiniMap(){return <svg viewBox="0 0 40 40" fill="none" style={{width:34,height:34,display:"block"}}>
+  <rect width="40" height="40" rx="10" fill="#0E1B2A"/>
+  <path d="M2 28 Q10 22 20 24 Q30 26 38 22 L38 38 L2 38Z" fill="#E8B647"/>
+  <circle cx="22" cy="14" r="6" fill="#FFD93D"/>
+  <rect x="14" y="22" width="2" height="8" fill="#fff"/>
+  <rect x="18" y="20" width="2" height="10" fill="#fff"/>
+  <rect x="22" y="22" width="2" height="8" fill="#fff"/>
+</svg>;}
+
+function BenidormMap(){return <svg viewBox="0 0 320 190" fill="none" style={{width:"100%",display:"block"}}>
+  <defs>
+    <linearGradient id="sk" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#FFB47A"/><stop offset="100%" stopColor="#E8B647"/></linearGradient>
+    <linearGradient id="se" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#3D9BB5"/><stop offset="100%" stopColor="#1F5876"/></linearGradient>
+    <linearGradient id="sa" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#F5DA9E"/><stop offset="100%" stopColor="#E8B647"/></linearGradient>
+  </defs>
+  <rect width="320" height="90" fill="url(#sk)"/>
+  <circle cx="245" cy="48" r="28" fill="#FFD93D"/>
+  <circle cx="245" cy="48" r="40" fill="#FFD93D" opacity="0.18"/>
+  <rect y="90" width="320" height="60" fill="url(#se)"/>
+  <path d="M0 148 Q80 138 160 143 Q240 148 320 136 L320 190 L0 190Z" fill="url(#sa)"/>
+  <g fill="#fff" opacity="0.92">
+    <rect x="95" y="128" width="5" height="32"/><rect x="105" y="120" width="7" height="40"/>
+    <rect x="114" y="130" width="5" height="28"/><rect x="122" y="118" width="5" height="42"/>
+    <rect x="132" y="123" width="5" height="37"/><rect x="141" y="128" width="5" height="32"/>
+    <rect x="150" y="118" width="7" height="42"/><rect x="159" y="125" width="5" height="35"/>
+    <rect x="168" y="123" width="5" height="37"/><rect x="178" y="120" width="7" height="40"/>
+    <rect x="187" y="128" width="5" height="32"/><rect x="196" y="124" width="5" height="36"/>
+  </g>
+  <ellipse cx="52" cy="124" rx="12" ry="6" fill="#1A3A4A"/>
+</svg>;}
+
+const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;margin:0;padding:0;}
+:root{--ink:#0E1B2A;--paper:#FAF3E7;--paper2:#F2E8D5;--coral:#FF6B47;--terra:#C25A3D;}
+.hq-center{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--paper);font-family:Inter,sans-serif;color:var(--ink);}
+.hq-spin{width:32px;height:32px;border:3px solid var(--ink);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.hq-login{min-height:100vh;background:var(--paper);display:flex;align-items:flex-start;justify-content:center;padding:40px 24px;position:relative;overflow-x:hidden;font-family:Inter,sans-serif;}
+.hq-sun{position:fixed;top:-180px;right:-180px;width:520px;height:520px;background:radial-gradient(circle,#FFD93D,#FF8867 40%,transparent 70%);opacity:.3;filter:blur(18px);pointer-events:none;}
+.hq-login-inner{position:relative;width:100%;max-width:400px;display:flex;flex-direction:column;gap:16px;padding-bottom:40px;}
+.hq-poster{border-radius:16px;overflow:hidden;border:1.5px solid var(--ink);box-shadow:6px 6px 0 var(--ink);}
+.hq-eyebrow{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:3px;color:var(--terra);text-align:center;}
+.hq-title{font-family:'DM Serif Display',serif;font-size:clamp(48px,13vw,66px);line-height:.9;letter-spacing:-2px;text-align:center;}
+.t1{color:var(--ink)}.t2{color:var(--coral);font-style:italic;}
+.hq-sub{font-size:14px;opacity:.6;}
+.hq-auth-box{background:#fff;border:1.5px solid var(--ink);border-radius:18px;padding:20px;box-shadow:6px 6px 0 var(--ink);display:flex;flex-direction:column;gap:10px;}
+.hq-auth-tabs{display:flex;gap:6px;}
+.hq-auth-tab{flex:1;background:#fff;border:1.5px solid var(--ink);border-radius:9px;padding:9px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+.hq-auth-tab.on{background:var(--ink);color:var(--paper);}
+.hq-auth-error{color:var(--coral);font-size:12px;text-align:center;}
+.hq-welcome-emoji{font-size:42px;text-align:center;}
+.hq-welcome-title{font-family:'DM Serif Display',serif;font-size:26px;text-align:center;}
+.hq-welcome-sub{font-size:13px;opacity:.6;text-align:center;}
+.hq-field-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;opacity:.5;margin-bottom:6px;}
+.hq-btn-welcome{width:100%;background:var(--coral);border:1.5px solid var(--ink);color:#fff;border-radius:12px;padding:14px;font-family:'DM Serif Display',serif;font-size:18px;cursor:pointer;box-shadow:3px 3px 0 var(--ink);letter-spacing:.5px;}
+.hq-btn-welcome:disabled{opacity:.4;cursor:not-allowed;}
+.hq-btn-welcome:active:not(:disabled){transform:translate(2px,2px);box-shadow:1px 1px 0 var(--ink);}
+.hq-link-btn{background:none;border:none;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--ink);opacity:.35;cursor:pointer;padding:6px 0;text-decoration:underline;display:block;}
+.hq-holiday-card{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer;width:100%;font-family:inherit;box-shadow:3px 3px 0 var(--ink);text-align:left;}
+.hq-holiday-card:active:not(:disabled){transform:translate(1px,1px);box-shadow:2px 2px 0 var(--ink);}
+.hq-holiday-card:disabled{opacity:.5;cursor:wait;}
+.hq-holiday-name{font-family:'DM Serif Display',serif;font-size:18px;margin-bottom:2px;}
+.hq-holiday-meta{font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.5;letter-spacing:1px;}
+.hq-tag{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:2px;padding:3px 8px;border-radius:50px;font-weight:700;white-space:nowrap;flex-shrink:0;}
+.hq-tag-created{background:var(--coral);color:#fff;}
+.hq-tag-invited{background:var(--ink);color:var(--paper);}
+.hq-player-list{display:flex;flex-direction:column;gap:0;border:1.5px solid var(--paper2);border-radius:10px;overflow:hidden;}
+.hq-player-pill{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#fff;border-bottom:1px solid var(--paper2);}
+.hq-player-pill:last-child{border-bottom:none;}
+.hq-admin-chip{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1px;background:var(--terra);color:#fff;padding:2px 6px;border-radius:4px;}
+.hq-app{min-height:100vh;background:var(--paper);max-width:480px;margin:0 auto;padding-bottom:60px;font-family:Inter,sans-serif;color:var(--ink);}
+.hq-header{padding:14px 16px 0;position:sticky;top:0;background:var(--paper);z-index:50;border-bottom:1.5px solid var(--ink);}
+.hq-htop{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.hq-back-btn{background:none;border:none;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:1px;color:var(--ink);opacity:.5;cursor:pointer;padding:0;white-space:nowrap;flex-shrink:0;}
+.hq-logo{display:flex;align-items:center;gap:9px;min-width:0;flex:1;justify-content:center;}
+.hq-logo-txt{font-family:'DM Serif Display',serif;font-size:18px;letter-spacing:-.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:160px;}
+.hq-saving{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1px;opacity:.45;margin-left:6px;}
+.hq-icon-btn{background:#fff;border:1.5px solid var(--ink);border-radius:9px;width:34px;height:34px;font-size:14px;cursor:pointer;box-shadow:2px 2px 0 var(--ink);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.hq-icon-btn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);}
+.hq-hero{background:var(--c);border:1.5px solid var(--ink);border-radius:14px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;box-shadow:4px 4px 0 var(--ink);margin-bottom:12px;position:relative;overflow:hidden;}
+.hq-hero::after{content:'';position:absolute;top:-60%;right:-5%;width:160px;height:160px;background:radial-gradient(circle,rgba(255,255,255,.3),transparent 65%);}
+.hq-hlabel{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:2px;color:rgba(255,255,255,.8);margin-bottom:3px;}
+.hq-hname{font-family:'DM Serif Display',serif;font-size:24px;color:#fff;line-height:1;margin-bottom:4px;}
+.hq-hstats{font-size:11px;color:rgba(255,255,255,.85);}
+.hq-hstats b{font-weight:700;}
+.hq-hpts{text-align:right;color:#fff;position:relative;z-index:1;}
+.hq-hpts-n{font-family:'DM Serif Display',serif;font-size:34px;line-height:1;}
+.hq-hpts-l{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:3px;opacity:.8;margin-top:1px;}
+.hq-tabs{display:flex;margin:0 -16px;padding:0 16px;}
+.hq-tab{flex:1;background:none;border:none;padding:11px 4px;font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);opacity:.4;cursor:pointer;position:relative;}
+.hq-tab.on{opacity:1;}
+.hq-tab.on::after{content:'';position:absolute;bottom:-1.5px;left:50%;transform:translateX(-50%);width:20px;height:2.5px;background:var(--coral);border-radius:2px;}
+.hq-main{padding:14px 16px;}
+.hq-add-btn{width:100%;background:#fff;border:1.5px dashed var(--ink);border-radius:12px;padding:12px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px;}
+.hq-add-btn:active{background:var(--paper2);}
+.hq-list{display:flex;flex-direction:column;gap:10px;}
+.hq-card{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:flex-start;gap:11px;box-shadow:3px 3px 0 var(--ink);animation:rise .4s both cubic-bezier(.2,.8,.3,1);}
+.hq-card.done{background:var(--paper2);}
+.hq-card-emoji{font-size:26px;flex-shrink:0;margin-top:2px;}
+.hq-card-body{flex:1;min-width:0;}
+.hq-card-cat{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--terra);margin-bottom:2px;}
+.hq-card-name{font-family:'DM Serif Display',serif;font-size:17px;margin-bottom:5px;line-height:1.1;}
+.hq-card-meta{display:flex;align-items:center;gap:8px;font-size:12px;}
+.hq-pts{color:var(--coral);font-weight:700;}
+.hq-avas{display:flex;}
+.hq-av{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;color:#fff;font-weight:700;border:1.5px solid var(--paper);margin-left:-5px;font-family:'DM Serif Display',serif;flex-shrink:0;}
+.hq-av:first-child{margin-left:0;}
+.hq-card-actions{display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0;}
+.hq-btn-go{background:var(--coral);border:1.5px solid var(--ink);color:#fff;padding:9px 13px;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;box-shadow:2px 2px 0 var(--ink);white-space:nowrap;}
+.hq-btn-go:active:not(:disabled){transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);}
+.hq-btn-go:disabled{opacity:.5;cursor:wait;}
+.hq-btn-tag{background:#fff;border:1.5px solid var(--ink);color:var(--ink);padding:9px 13px;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:2px 2px 0 var(--ink);white-space:nowrap;}
+.hq-btn-tag:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);}
+.hq-stamp{border:2px solid var(--terra);color:var(--terra);padding:7px 9px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:3px;transform:rotate(-2deg);}
+.hq-feed-row{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:center;gap:11px;box-shadow:3px 3px 0 var(--ink);animation:rise .4s both cubic-bezier(.2,.8,.3,1);}
+.hq-feed-row.tag{background:var(--paper2);border-style:dashed;}
+.hq-feed-line{font-size:14px;line-height:1.4;}
+.hq-feed-line b{font-weight:700;}
+.hq-feed-meta{font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.5;margin-top:3px;}
+.hq-empty{text-align:center;padding:48px 20px;opacity:.35;font-size:14px;line-height:2;}
+.hq-podium{display:grid;grid-template-columns:1fr 1fr 1fr;align-items:end;gap:8px;padding:20px 10px 14px;}
+.hq-pod-col{display:flex;flex-direction:column;align-items:center;}
+.hq-pod-av{width:46px;height:46px;border-radius:50%;border:1.5px solid var(--ink);display:flex;align-items:center;justify-content:center;color:#fff;font-family:'DM Serif Display',serif;font-size:21px;margin-bottom:5px;box-shadow:2px 2px 0 var(--ink);}
+.hq-pod-name{font-family:'DM Serif Display',serif;font-size:13px;margin-bottom:2px;}
+.hq-pod-pts{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--coral);font-weight:700;margin-bottom:5px;}
+.hq-pod-block{width:100%;border:1.5px solid var(--ink);border-radius:7px 7px 0 0;display:flex;align-items:flex-start;justify-content:center;padding-top:8px;}
+.hq-pod-block span{font-family:'DM Serif Display',serif;font-size:20px;color:#fff;}
+.hq-rank-row{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:center;gap:11px;box-shadow:3px 3px 0 var(--ink);}
+.hq-rank-row.me{background:var(--paper2);border-width:2px;}
+.hq-rank-n{font-family:'DM Serif Display',serif;font-size:18px;opacity:.35;width:24px;flex-shrink:0;}
+.hq-rank-name{font-family:'DM Serif Display',serif;font-size:16px;}
+.hq-rank-meta{font-size:10px;opacity:.5;font-family:'JetBrains Mono',monospace;}
+.hq-rank-pts{font-family:'DM Serif Display',serif;font-size:20px;color:var(--coral);text-align:right;}
+.hq-rank-pts span{display:block;font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:2px;opacity:.45;color:var(--ink);}
+.hq-wrapped-banner{background:var(--coral);color:#fff;text-align:center;padding:8px;font-size:13px;font-weight:700;font-family:'DM Serif Display',serif;margin:0 -16px;border-top:1.5px solid var(--ink);}
+.hq-overlay{position:fixed;inset:0;background:rgba(14,27,42,.6);z-index:200;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(6px);}
+.hq-sheet{background:var(--paper);border-top:1.5px solid var(--ink);border-left:1.5px solid var(--ink);border-right:1.5px solid var(--ink);border-radius:22px 22px 0 0;width:100%;max-width:480px;padding:14px 20px 36px;max-height:88vh;overflow-y:auto;animation:up .28s cubic-bezier(.2,.8,.3,1);}
+@keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.hq-handle{width:36px;height:4px;background:var(--ink);opacity:.15;border-radius:2px;margin:0 auto 16px;}
+.hq-s-eye{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:3px;color:var(--terra);margin-bottom:5px;}
+.hq-s-title{font-family:'DM Serif Display',serif;font-size:26px;margin-bottom:4px;}
+.hq-s-sub{font-size:13px;opacity:.55;margin-bottom:14px;}
+.hq-tag-row{background:#fff;border:1.5px solid var(--ink);border-radius:12px;padding:12px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;font-family:inherit;box-shadow:2px 2px 0 var(--ink);width:100%;margin-bottom:8px;}
+.hq-tag-row:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);}
+.hq-tag-nm{flex:1;font-family:'DM Serif Display',serif;font-size:17px;text-align:left;}
+.hq-form{display:flex;flex-direction:column;gap:10px;margin-bottom:14px;}
+.hq-input{background:#fff;border:1.5px solid var(--ink);border-radius:10px;padding:12px 14px;font-family:inherit;font-size:14px;color:var(--ink);outline:none;width:100%;}
+.hq-input:focus{border-color:var(--coral);}
+.hq-input[readonly]{opacity:.6;background:var(--paper2);}
+.hq-btn-dark{width:100%;background:var(--ink);border:1.5px solid var(--ink);color:var(--paper);border-radius:10px;padding:14px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;}
+.hq-btn-dark:disabled{opacity:.5;}
+.hq-btn-cancel{width:100%;background:transparent;border:1.5px solid var(--ink);border-radius:10px;padding:12px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink);}
+.hq-admin-tabs{display:flex;gap:6px;margin-bottom:16px;}
+.hq-atab{flex:1;background:#fff;border:1.5px solid var(--ink);border-radius:9px;padding:9px 6px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+.hq-atab.on{background:var(--ink);color:var(--paper);}
+.hq-user-row{background:#fff;border:1.5px solid var(--ink);border-radius:12px;padding:11px 12px;display:flex;align-items:center;gap:10px;margin-bottom:8px;box-shadow:2px 2px 0 var(--ink);}
+.hq-ur-name{font-family:'DM Serif Display',serif;font-size:15px;}
+.hq-ur-meta{font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.5;margin-top:1px;}
+.hq-btn-sm{background:#fff;border:1.5px solid var(--ink);border-radius:8px;padding:6px 10px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+.hq-btn-sm.danger{color:#BB3333;border-color:#ddb0b0;}
+.hq-color-row{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0;}
+.hq-color-dot{width:30px;height:30px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:transform .1s;}
+.hq-color-dot.sel{border-color:var(--ink);box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ink);}
+.hq-color-dot.taken{opacity:.2;cursor:not-allowed;}
+.hq-edit-user{display:flex;flex-direction:column;gap:10px;}
+.hq-invite-section{border-top:1.5px dashed var(--ink);margin-top:16px;padding-top:16px;}
+.hq-wrap-section{border-top:1.5px dashed var(--ink);margin-top:16px;padding-top:16px;}
+.hq-wrap-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;opacity:.5;margin-bottom:8px;}
+.hq-btn-wrap{width:100%;background:#1a1a1a;border:1.5px solid var(--ink);color:#fff;border-radius:10px;padding:14px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;}
+.hq-wrap-confirm{border:1.5px solid var(--ink);border-radius:12px;padding:14px;background:#fff;margin-bottom:8px;}
+.hq-wrap-confirm-msg{font-size:13px;line-height:1.5;margin-bottom:12px;opacity:.8;}
+.hq-wrap-confirm-btns{display:flex;gap:8px;}
+.hq-wrap-confirm-btns .hq-btn-cancel{flex:1;padding:10px;}
+.hq-btn-wrap-yes{flex:1;background:#1a1a1a;border:1.5px solid var(--ink);color:#fff;border-radius:10px;padding:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+.hq-export{width:100%;height:200px;background:#fff;border:1.5px solid var(--ink);border-radius:10px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:11px;resize:none;margin-bottom:12px;color:var(--ink);}
+.hq-toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:11px 22px;border-radius:50px;font-size:13px;font-weight:600;z-index:300;box-shadow:3px 3px 0 var(--coral);animation:toast .35s cubic-bezier(.2,.8,.3,1);font-family:'DM Serif Display',serif;max-width:90vw;text-align:center;white-space:nowrap;}
+.hq-toast.err{box-shadow:3px 3px 0 var(--terra);}
+.hq-confirm-box{background:#fff4f4;border:1.5px solid #ddb0b0;border-radius:12px;padding:14px;margin-bottom:8px;}
+.hq-confirm-msg{font-size:13px;line-height:1.5;margin-bottom:10px;}
+.hq-confirm-btns{display:flex;gap:8px;}
+.hq-pass-wrap{position:relative;width:100%;}
+.hq-pass-wrap .hq-input{padding-right:44px;}
+.hq-eye-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;line-height:1;user-select:none;}
+.hq-tag-row.selected{background:var(--paper2);border-color:var(--coral);}
+.hq-tag-check{color:var(--coral);font-size:18px;font-weight:700;}
+@keyframes toast{from{transform:translate(-50%,70px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
+@keyframes rise{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}`;
+
+const styleEl=document.createElement('style');
+styleEl.textContent=css;
+document.head.appendChild(styleEl);
+
+const root=ReactDOM.createRoot(document.getElementById('root'));
+root.render(React.createElement(App));
+</script>
+<script>
+  if('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => console.log('SW registered'))
+        .catch(err => console.log('SW failed:', err));
+    });
+  }
+</script>
+</body>
+</html>
