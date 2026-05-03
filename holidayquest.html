@@ -34,7 +34,7 @@ const LS_CLIENT = "hq_client";
 const LS_HOLIDAY= "hq_holiday";
 const LS_PLAYER = "hq_player";
 
-const CAT_EMOJI = { Restaurant:"🍽️", Bar:"🍺", Club:"🕺", Pub:"🦁", Other:"📍" };
+const CAT_EMOJI = { Restaurant:"🍽️", Bar:"🍸", Club:"🕺", Pub:"🍺", Other:"📍" };
 const COLORS    = ["#FF6B47","#3D9BB5","#E8B647","#7B5E9C","#4CAF82","#E91E8C","#00BCD4","#FF9800","#E53935","#8D6E63","#546E7A","#2E7D32","#AD1457","#1565C0","#F57F17","#4A148C"];
 
 function initial(n) { return (n||"?")[0].toUpperCase(); }
@@ -85,6 +85,7 @@ function App() {
   const [adminTab,setAdminTab]       = useState("players");
   const [editPlayer,setEditPlayer]   = useState(null);
   const [newPlace,setNewPlace]       = useState({name:"",points:"200",category:"Bar"});
+  const [editPlace,setEditPlace]     = useState(null);
   const [exportTxt,setExportTxt]     = useState("");
   const [toast,setToast]             = useState(null);
   const [busy,setBusy]               = useState(false);
@@ -335,7 +336,6 @@ function App() {
 
   // ── Enter existing holiday ─────────────────────────────────────
   async function enterHoliday(h){
-    setSaving(true);
     try{
       const g=await api("GetHolidayState",{holidayId:h.holidayId},jwtRef.current);
       setGame(g); gameRef.current=g;
@@ -345,7 +345,6 @@ function App() {
       if(p){setMyPlayer(p);playerRef.current=p;}
       setStatus(g.wrapped?"wrapped":"app");
     }catch(e){showToast(e.message,"err");}
-    setSaving(false);
   }
 
   // ── Invite player ──────────────────────────────────────────────
@@ -418,6 +417,24 @@ function App() {
     setSaving(true);
     try{await api("RemovePlace",{placeId},jwtRef.current);await loadGame();showToast("Removed");}
     catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  async function savePlaceEdit(){
+    if(!editPlace) return;
+    const name=editPlace.name.trim(); if(!name) return showToast("Name can't be empty","err");
+    setSaving(true);
+    try{
+      await api("UpdatePlace",{
+        placeId:editPlace.id,
+        name,
+        points:parseInt(editPlace.points)||200,
+        category:editPlace.category
+      },jwtRef.current);
+      await loadGame();
+      setEditPlace(null);
+      showToast("Place updated");
+    }catch(e){showToast(e.message,"err");}
     setSaving(false);
   }
 
@@ -699,11 +716,12 @@ function App() {
         <div className="hq-logo">
           <MiniMap/>
           <span className="hq-logo-txt">{game?.name}</span>
-          {(saving||syncing)&&<span className="hq-saving">{saving?"saving…":"syncing…"}</span>}
+          {saving&&<span className="hq-saving">saving…</span>}
+
         </div>
         <div style={{display:"flex",gap:8}}>
           {isAdmin&&<button className="hq-icon-btn" onClick={()=>{setAdminTab("players");setSheet({type:"admin"});}}>⚙️</button>}
-          <button className="hq-icon-btn" onClick={()=>loadGame()}>🔄</button>
+          <button className="hq-icon-btn" onClick={()=>loadGame()} title="Sync">{syncing?"⏳":"🔄"}</button>
         </div>
       </div>
       <div className="hq-hero" style={{"--c":myPlayer?.color||"#888"}}>
@@ -799,7 +817,7 @@ function App() {
           <select className="hq-input" value={newPlace.category} onChange={e=>setNewPlace(p=>({...p,category:e.target.value}))}>
             {["Bar","Pub","Club","Restaurant","Other"].map(c=><option key={c}>{c}</option>)}
           </select>
-          <input className="hq-input" type="number" placeholder="Points" value={newPlace.points} onChange={e=>setNewPlace(p=>({...p,points:e.target.value}))}/>
+          <input className="hq-input" type="number" placeholder="Points" step="5" min="0" value={newPlace.points} onChange={e=>setNewPlace(p=>({...p,points:e.target.value}))}/>
         </div>
         <button className="hq-btn-dark" disabled={saving} onClick={submitAddPlace}>{saving?"Saving…":"Add Place"}</button>
         <button className="hq-btn-cancel" onClick={closeSheet}>Cancel</button>
@@ -857,14 +875,30 @@ function App() {
           </>
         }</>}
 
-        {adminTab==="places"&&<>
-          {(game?.places||[]).map(p=><div key={p.id} className="hq-user-row">
-            <div style={{fontSize:22}}>{CAT_EMOJI[p.category]||"📍"}</div>
-            <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.category} · {p.points} pts</div></div>
-            <button className="hq-btn-sm danger" onClick={()=>removePlace(p.id)}>✕</button>
-          </div>)}
-          <button className="hq-btn-dark" style={{marginTop:12}} onClick={()=>{closeSheet();setTimeout(()=>setSheet({type:"addPlace"}),200);}}>+ Add Place</button>
-        </>}
+        {adminTab==="places"&&<>{editPlace?
+          <div className="hq-edit-user">
+            <div className="hq-s-sub">Editing: {editPlace.name}</div>
+            <input className="hq-input" placeholder="Venue name" value={editPlace.name}
+              onChange={e=>setEditPlace(p=>({...p,name:e.target.value}))}/>
+            <select className="hq-input" value={editPlace.category}
+              onChange={e=>setEditPlace(p=>({...p,category:e.target.value}))}>
+              {["Bar","Pub","Club","Restaurant","Other"].map(c=><option key={c}>{c}</option>)}
+            </select>
+            <input className="hq-input" type="number" step="5" min="0" placeholder="Points"
+              value={editPlace.points} onChange={e=>setEditPlace(p=>({...p,points:e.target.value}))}/>
+            <button className="hq-btn-dark" disabled={saving} onClick={savePlaceEdit}>{saving?"Saving…":"Save"}</button>
+            <button className="hq-btn-cancel" onClick={()=>setEditPlace(null)}>Back</button>
+          </div>:
+          <>
+            {(game?.places||[]).map(p=><div key={p.id} className="hq-user-row">
+              <div style={{fontSize:22}}>{CAT_EMOJI[p.category]||"📍"}</div>
+              <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.category} · {p.points} pts</div></div>
+              <button className="hq-btn-sm" onClick={()=>setEditPlace({...p,points:String(p.points)})}>Edit</button>
+              <button className="hq-btn-sm danger" onClick={()=>removePlace(p.id)}>✕</button>
+            </div>)}
+            <button className="hq-btn-dark" style={{marginTop:12}} onClick={()=>{closeSheet();setTimeout(()=>setSheet({type:"addPlace"}),200);}}>+ Add Place</button>
+          </>
+        }</>}
 
         <div className="hq-wrap-section">
           <div className="hq-wrap-label">End of holiday</div>
