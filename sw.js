@@ -2,7 +2,7 @@
 // Caches the app shell for offline use
 // Network-first strategy for API calls, cache-first for assets
 
-const CACHE_NAME = 'holidayquest-v1';
+const CACHE_NAME = 'holidayquest-v2';
 
 const PRECACHE = [
   './holidayquest.html',
