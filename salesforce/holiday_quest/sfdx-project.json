@@ -1,0 +1,12 @@
+{
+  "packageDirectories": [
+    {
+      "path": "salesforce",
+      "default": true
+    }
+  ],
+  "name": "holiday_quest",
+  "namespace": "",
+  "sfdcLoginUrl": "https://login.salesforce.com",
+  "sourceApiVersion": "66.0"
+}
