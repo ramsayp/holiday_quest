@@ -786,7 +786,7 @@ function App() {
       </>}
     </main>
 
-    {sheet&&<div className="hq-overlay" onClick={closeSheet}><div className="hq-sheet" onClick={e=>e.stopPropagation()}>
+    {sheet&&<div className="hq-overlay" onClick={closeSheet}><div className={"hq-sheet"+(sheet.type==="admin"?" hq-sheet-admin":"")} onClick={e=>e.stopPropagation()}>
       <div className="hq-handle"/>
 
       {sheet.type==="tag"&&<>
@@ -829,105 +829,115 @@ function App() {
 
       {sheet.type==="admin"&&<>
         <div className="hq-s-eye">ADMIN — {game?.name}</div>
-        <div className="hq-admin-tabs">
-          <button className={"hq-atab"+(adminTab==="players"?" on":"")} onClick={()=>setAdminTab("players")}>Players</button>
-          <button className={"hq-atab"+(adminTab==="places"?" on":"")} onClick={()=>setAdminTab("places")}>Places</button>
-          <button className={"hq-atab"+(adminTab==="export"?" on":"")} onClick={()=>{buildExport();setAdminTab("export");}}>Export</button>
-          <button className={"hq-atab"+(adminTab==="finish"?" on":"")} onClick={()=>setAdminTab("finish")}>Finish</button>
+        <div className="hq-admin-content">
+
+          {adminTab==="players"&&<>{editPlayer?
+            <div className="hq-edit-user">
+              <div className="hq-s-sub">Editing: {editPlayer.name}</div>
+              <input className="hq-input" placeholder="Name" value={editPlayer.name} onChange={e=>setEditPlayer(p=>({...p,name:e.target.value}))}/>
+              <div className="hq-color-row">{COLORS.map(c=><button key={c} className={"hq-color-dot"+(editPlayer.color===c?" sel":"")} style={{background:c}} onClick={()=>setEditPlayer(p=>({...p,color:c}))}/>)}</div>
+              <button className="hq-btn-dark" disabled={saving} onClick={savePlayerEdit}>{saving?"Saving…":"Save"}</button>
+              <button className="hq-btn-cancel" onClick={()=>setEditPlayer(null)}>Back</button>
+            </div>:
+            <>
+              {(game?.players||[]).map(p=><div key={p.id} className="hq-user-row">
+                <div className="hq-av" style={{background:p.color,width:36,height:36,fontSize:16}}>{initial(p.name)}</div>
+                <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.isAdmin?"admin · ":""}{userStats(p.id).points} pts</div></div>
+                <button className="hq-btn-sm" onClick={()=>setEditPlayer({...p})}>Edit</button>
+                {!p.isAdmin&&<button className="hq-btn-sm danger" onClick={()=>setConfirmRemovePlayer(p)}>✕</button>}
+              </div>)}
+              {confirmRemovePlayer&&<div className="hq-confirm-box">
+                <div className="hq-confirm-msg">Remove <b>{confirmRemovePlayer.name}</b> from this holiday? Their check-ins will also be deleted.</div>
+                <div className="hq-confirm-btns">
+                  <button className="hq-btn-cancel" style={{flex:1,padding:"10px"}} onClick={()=>setConfirmRemovePlayer(null)}>Cancel</button>
+                  <button className="hq-btn-sm danger" style={{flex:1,padding:"10px"}} onClick={()=>{removePlayer(confirmRemovePlayer.id);setConfirmRemovePlayer(null);}}>Remove</button>
+                </div>
+              </div>}
+              <div className="hq-invite-section">
+                <div className="hq-wrap-label">Invite a player</div>
+                <input className="hq-input" placeholder="Their name (e.g. Kim)"
+                  value={inviteName} onChange={e=>setInviteName(e.target.value)}
+                  style={{marginBottom:8}}/>
+                <input className="hq-input" placeholder="friend@email.com" type="email"
+                  value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)}
+                  onKeyDown={e=>e.key==="Enter"&&invitePlayer()}
+                  style={{marginBottom:8}}/>
+                <div className="hq-color-row" style={{marginBottom:8}}>
+                  {COLORS.map(c=>{const taken=takenColors.includes(c);return(
+                    <button key={c} className={"hq-color-dot"+(inviteColor===c?" sel":"")+(taken?" taken":"")}
+                      style={{background:c}} disabled={taken} onClick={()=>!taken&&setInviteColor(c)}/>
+                  );})}
+                </div>
+                <button className="hq-btn-dark" disabled={inviting||!inviteEmail.trim()} onClick={invitePlayer}>
+                  {inviting?"Adding…":"+ Invite Player"}
+                </button>
+              </div>
+            </>
+          }</>}
+
+          {adminTab==="places"&&<>{editPlace?
+            <div className="hq-edit-user">
+              <div className="hq-s-sub">Editing: {editPlace.name}</div>
+              <input className="hq-input" placeholder="Venue name" value={editPlace.name}
+                onChange={e=>setEditPlace(p=>({...p,name:e.target.value}))}/>
+              <select className="hq-input" value={editPlace.category}
+                onChange={e=>setEditPlace(p=>({...p,category:e.target.value}))}>
+                {["Bar","Pub","Club","Restaurant","Other"].map(c=><option key={c}>{c}</option>)}
+              </select>
+              <input className="hq-input" type="number" step="5" min="0" placeholder="Points"
+                value={editPlace.points} onChange={e=>setEditPlace(p=>({...p,points:e.target.value}))}/>
+              <button className="hq-btn-dark" disabled={saving} onClick={savePlaceEdit}>{saving?"Saving…":"Save"}</button>
+              <button className="hq-btn-cancel" onClick={()=>setEditPlace(null)}>Back</button>
+            </div>:
+            <>
+              {(game?.places||[]).map(p=><div key={p.id} className="hq-user-row">
+                <div style={{fontSize:22}}>{CAT_EMOJI[p.category]||"📍"}</div>
+                <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.category} · {p.points} pts</div></div>
+                <button className="hq-btn-sm" onClick={()=>setEditPlace({...p,points:String(p.points)})}>Edit</button>
+                <button className="hq-btn-sm danger" onClick={()=>setConfirmRemovePlace(p)}>✕</button>
+              </div>)}
+              {confirmRemovePlace&&<div className="hq-confirm-box">
+                <div className="hq-confirm-msg">Remove <b>{confirmRemovePlace.name}</b>? Check-ins for this place will also be deleted.</div>
+                <div className="hq-confirm-btns">
+                  <button className="hq-btn-cancel" style={{flex:1,padding:"10px"}} onClick={()=>setConfirmRemovePlace(null)}>Cancel</button>
+                  <button className="hq-btn-sm danger" style={{flex:1,padding:"10px"}} onClick={()=>{removePlace(confirmRemovePlace.id);setConfirmRemovePlace(null);}}>Remove</button>
+                </div>
+              </div>}
+              <button className="hq-btn-dark" style={{marginTop:12}} onClick={()=>{closeSheet();setTimeout(()=>setSheet({type:"addPlace"}),200);}}>+ Add Place</button>
+            </>
+          }</>}
+
+          {adminTab==="export"&&<>
+            <div className="hq-s-eye">DATA EXPORT</div>
+            <div className="hq-s-title">All activity</div>
+            <textarea className="hq-export" readOnly value={exportTxt}/>
+            <button className="hq-btn-dark" onClick={()=>navigator.clipboard?.writeText(exportTxt).then(()=>showToast("Copied!")).catch(()=>showToast("Copy manually","err"))}>Copy to clipboard</button>
+          </>}
+
+          {adminTab==="finish"&&<div style={{paddingTop:4}}>
+            <div className="hq-wrap-label">End of holiday</div>
+            {!wrapConfirm?
+              <button className="hq-btn-wrap" onClick={()=>setWrapConfirm(true)}>🎉 Wrap Up Holiday</button>:
+              <div className="hq-wrap-confirm">
+                <div className="hq-wrap-confirm-msg">Are you sure? Players will only see final results.</div>
+                <div className="hq-wrap-confirm-btns">
+                  <button className="hq-btn-cancel" onClick={()=>setWrapConfirm(false)}>Cancel</button>
+                  <button className="hq-btn-wrap-yes" onClick={wrapUp}>{saving?"Wrapping…":"Yes, wrap it!"}</button>
+                </div>
+              </div>
+            }
+          </div>}
+
         </div>
-
-        {adminTab==="players"&&<>{editPlayer?
-          <div className="hq-edit-user">
-            <div className="hq-s-sub">Editing: {editPlayer.name}</div>
-            <input className="hq-input" placeholder="Name" value={editPlayer.name} onChange={e=>setEditPlayer(p=>({...p,name:e.target.value}))}/>
-            <div className="hq-color-row">{COLORS.map(c=><button key={c} className={"hq-color-dot"+(editPlayer.color===c?" sel":"")} style={{background:c}} onClick={()=>setEditPlayer(p=>({...p,color:c}))}/>)}</div>
-            <button className="hq-btn-dark" disabled={saving} onClick={savePlayerEdit}>{saving?"Saving…":"Save"}</button>
-            <button className="hq-btn-cancel" onClick={()=>setEditPlayer(null)}>Back</button>
-          </div>:
-          <>
-            {(game?.players||[]).map(p=><div key={p.id} className="hq-user-row">
-              <div className="hq-av" style={{background:p.color,width:36,height:36,fontSize:16}}>{initial(p.name)}</div>
-              <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.isAdmin?"admin · ":""}{userStats(p.id).points} pts</div></div>
-              <button className="hq-btn-sm" onClick={()=>setEditPlayer({...p})}>Edit</button>
-              {!p.isAdmin&&<button className="hq-btn-sm danger" onClick={()=>setConfirmRemovePlayer(p)}>✕</button>}
-            </div>)}
-            {confirmRemovePlayer&&<div className="hq-confirm-box">
-              <div className="hq-confirm-msg">Remove <b>{confirmRemovePlayer.name}</b> from this holiday? Their check-ins will also be deleted.</div>
-              <div className="hq-confirm-btns">
-                <button className="hq-btn-cancel" style={{flex:1,padding:"10px"}} onClick={()=>setConfirmRemovePlayer(null)}>Cancel</button>
-                <button className="hq-btn-sm danger" style={{flex:1,padding:"10px"}} onClick={()=>{removePlayer(confirmRemovePlayer.id);setConfirmRemovePlayer(null);}}>Remove</button>
-              </div>
-            </div>}
-            <div className="hq-invite-section">
-              <div className="hq-wrap-label">Invite a player</div>
-              <input className="hq-input" placeholder="Their name (e.g. Kim)"
-                value={inviteName} onChange={e=>setInviteName(e.target.value)}
-                style={{marginBottom:8}}/>
-              <input className="hq-input" placeholder="friend@email.com" type="email"
-                value={inviteEmail} onChange={e=>setInviteEmail(e.target.value)}
-                onKeyDown={e=>e.key==="Enter"&&invitePlayer()}
-                style={{marginBottom:8}}/>
-              <div className="hq-color-row" style={{marginBottom:8}}>
-                {COLORS.map(c=>{const taken=takenColors.includes(c);return(
-                  <button key={c} className={"hq-color-dot"+(inviteColor===c?" sel":"")+(taken?" taken":"")}
-                    style={{background:c}} disabled={taken} onClick={()=>!taken&&setInviteColor(c)}/>
-                );})}
-              </div>
-              <button className="hq-btn-dark" disabled={inviting||!inviteEmail.trim()} onClick={invitePlayer}>
-                {inviting?"Adding…":"+ Invite Player"}
-              </button>
-            </div>
-          </>
-        }</>}
-
-        {adminTab==="places"&&<>{editPlace?
-          <div className="hq-edit-user">
-            <div className="hq-s-sub">Editing: {editPlace.name}</div>
-            <input className="hq-input" placeholder="Venue name" value={editPlace.name}
-              onChange={e=>setEditPlace(p=>({...p,name:e.target.value}))}/>
-            <select className="hq-input" value={editPlace.category}
-              onChange={e=>setEditPlace(p=>({...p,category:e.target.value}))}>
-              {["Bar","Pub","Club","Restaurant","Other"].map(c=><option key={c}>{c}</option>)}
-            </select>
-            <input className="hq-input" type="number" step="5" min="0" placeholder="Points"
-              value={editPlace.points} onChange={e=>setEditPlace(p=>({...p,points:e.target.value}))}/>
-            <button className="hq-btn-dark" disabled={saving} onClick={savePlaceEdit}>{saving?"Saving…":"Save"}</button>
-            <button className="hq-btn-cancel" onClick={()=>setEditPlace(null)}>Back</button>
-          </div>:
-          <>
-            {(game?.places||[]).map(p=><div key={p.id} className="hq-user-row">
-              <div style={{fontSize:22}}>{CAT_EMOJI[p.category]||"📍"}</div>
-              <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.category} · {p.points} pts</div></div>
-              <button className="hq-btn-sm" onClick={()=>setEditPlace({...p,points:String(p.points)})}>Edit</button>
-              <button className="hq-btn-sm danger" onClick={()=>setConfirmRemovePlace(p)}>✕</button>
-            </div>)}
-            {confirmRemovePlace&&<div className="hq-confirm-box">
-              <div className="hq-confirm-msg">Remove <b>{confirmRemovePlace.name}</b>? Check-ins for this place will also be deleted.</div>
-              <div className="hq-confirm-btns">
-                <button className="hq-btn-cancel" style={{flex:1,padding:"10px"}} onClick={()=>setConfirmRemovePlace(null)}>Cancel</button>
-                <button className="hq-btn-sm danger" style={{flex:1,padding:"10px"}} onClick={()=>{removePlace(confirmRemovePlace.id);setConfirmRemovePlace(null);}}>Remove</button>
-              </div>
-            </div>}
-            <button className="hq-btn-dark" style={{marginTop:12}} onClick={()=>{closeSheet();setTimeout(()=>setSheet({type:"addPlace"}),200);}}>+ Add Place</button>
-          </>
-        }</>}
-
-        {adminTab==="export"&&<ExportSheet txt={exportTxt} onClose={()=>setAdminTab("players")} onCopy={()=>navigator.clipboard?.writeText(exportTxt).then(()=>showToast("Copied!")).catch(()=>showToast("Copy manually","err"))}/>}
-
-        {adminTab==="finish"&&<div className="hq-wrap-section" style={{border:"none",margin:0,padding:0}}>
-          <div className="hq-wrap-label">End of holiday</div>
-          {!wrapConfirm?
-            <button className="hq-btn-wrap" onClick={()=>setWrapConfirm(true)}>🎉 Wrap Up Holiday</button>:
-            <div className="hq-wrap-confirm">
-              <div className="hq-wrap-confirm-msg">Are you sure? Players will only see final results.</div>
-              <div className="hq-wrap-confirm-btns">
-                <button className="hq-btn-cancel" onClick={()=>setWrapConfirm(false)}>Cancel</button>
-                <button className="hq-btn-wrap-yes" onClick={wrapUp}>{saving?"Wrapping…":"Yes, wrap it!"}</button>
-              </div>
-            </div>
-          }
-        </div>}
-        <button className="hq-btn-cancel" style={{marginTop:8}} onClick={closeSheet}>Close</button>
+        <div className="hq-admin-footer">
+          <div className="hq-admin-tabs">
+            <button className={"hq-atab"+(adminTab==="players"?" on":"")} onClick={()=>setAdminTab("players")}>Players</button>
+            <button className={"hq-atab"+(adminTab==="places"?" on":"")} onClick={()=>setAdminTab("places")}>Places</button>
+            <button className={"hq-atab"+(adminTab==="export"?" on":"")} onClick={()=>{buildExport();setAdminTab("export");}}>Export</button>
+            <button className={"hq-atab"+(adminTab==="finish"?" on":"")} onClick={()=>setAdminTab("finish")}>Finish</button>
+          </div>
+          <button className="hq-btn-cancel" onClick={closeSheet}>Close</button>
+        </div>
       </>}
 
     </div></div>}
@@ -1126,7 +1136,10 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-btn-dark{width:100%;background:var(--ink);border:1.5px solid var(--ink);color:var(--paper);border-radius:10px;padding:14px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;}
 .hq-btn-dark:disabled{opacity:.5;}
 .hq-btn-cancel{width:100%;background:transparent;border:1.5px solid var(--ink);border-radius:10px;padding:12px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--ink);}
-.hq-admin-tabs{display:flex;gap:6px;margin-bottom:16px;}
+.hq-sheet-admin{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0;}
+.hq-admin-content{flex:1;overflow-y:auto;min-height:0;padding-bottom:12px;}
+.hq-admin-footer{flex-shrink:0;border-top:1.5px solid rgba(14,27,42,.12);padding:12px 0 28px;background:var(--paper);}
+.hq-admin-tabs{display:flex;gap:6px;margin-bottom:10px;}
 .hq-atab{flex:1;background:#fff;border:1.5px solid var(--ink);border-radius:9px;padding:9px 6px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;}
 .hq-atab.on{background:var(--ink);color:var(--paper);}
 .hq-user-row{background:#fff;border:1.5px solid var(--ink);border-radius:12px;padding:11px 12px;display:flex;align-items:center;gap:10px;margin-bottom:8px;box-shadow:2px 2px 0 var(--ink);}
