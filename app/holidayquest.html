@@ -828,7 +828,9 @@ function App() {
       </>}
 
       {sheet.type==="admin"&&<>
-        <div className="hq-s-eye">ADMIN — {game?.name}</div>
+        <div className="hq-s-title" style={{marginBottom:12}}>
+          {adminTab==="players"?"Player List":adminTab==="places"?"Place List":adminTab==="export"?"Data Export":"Confirm to end your holiday quest"}
+        </div>
         <div className="hq-admin-content">
 
           {adminTab==="players"&&<>{editPlayer?
@@ -908,14 +910,11 @@ function App() {
           }</>}
 
           {adminTab==="export"&&<>
-            <div className="hq-s-eye">DATA EXPORT</div>
-            <div className="hq-s-title">All activity</div>
             <textarea className="hq-export" readOnly value={exportTxt}/>
             <button className="hq-btn-dark" onClick={()=>navigator.clipboard?.writeText(exportTxt).then(()=>showToast("Copied!")).catch(()=>showToast("Copy manually","err"))}>Copy to clipboard</button>
           </>}
 
           {adminTab==="finish"&&<div style={{paddingTop:4}}>
-            <div className="hq-wrap-label">End of holiday</div>
             {!wrapConfirm?
               <button className="hq-btn-wrap" onClick={()=>setWrapConfirm(true)}>🎉 Wrap Up Holiday</button>:
               <div className="hq-wrap-confirm">
@@ -930,6 +929,7 @@ function App() {
 
         </div>
         <div className="hq-admin-footer">
+          <div className="hq-admin-footer-label">⚙️ Admin Settings — {game?.name}</div>
           <div className="hq-admin-tabs">
             <button className={"hq-atab"+(adminTab==="players"?" on":"")} onClick={()=>setAdminTab("players")}>Players</button>
             <button className={"hq-atab"+(adminTab==="places"?" on":"")} onClick={()=>setAdminTab("places")}>Places</button>
@@ -1139,6 +1139,7 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-sheet-admin{display:flex;flex-direction:column;overflow:hidden;padding-bottom:0;}
 .hq-admin-content{flex:1;overflow-y:auto;min-height:0;padding-bottom:12px;}
 .hq-admin-footer{flex-shrink:0;border-top:1.5px solid rgba(14,27,42,.12);padding:12px 0 28px;background:var(--paper);}
+.hq-admin-footer-label{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--terra);opacity:.8;margin-bottom:10px;text-transform:uppercase;}
 .hq-admin-tabs{display:flex;gap:6px;margin-bottom:10px;}
 .hq-atab{flex:1;background:#fff;border:1.5px solid var(--ink);border-radius:9px;padding:9px 6px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;}
 .hq-atab.on{background:var(--ink);color:var(--paper);}
