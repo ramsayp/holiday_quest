@@ -599,7 +599,7 @@ function App() {
         <div>
           <div className="hq-field-label">Your colour</div>
           <div className="hq-color-row">
-            {COLORS.map(c=><button key={c} className={"hq-color-dot"+(adminColor===c?" sel":"")} style={{background:c}} onClick={()=>setAdminColor(c)}/>)}
+            {COLORS.map(c=><button key={c} className={"hq-color-dot"+(adminColor===c?" sel":"")+(c==="#F5F5F5"?" pale":"")} style={{background:c}} onClick={()=>setAdminColor(c)}/>)}
           </div>
         </div>
         <button className="hq-btn-welcome" disabled={saving||!newHolidayName.trim()} onClick={createHoliday}>
@@ -658,7 +658,7 @@ function App() {
           <div className="hq-field-label">Their colour</div>
           <div className="hq-color-row">
             {COLORS.map(c=>{const taken=takenColors.includes(c);return(
-              <button key={c} className={"hq-color-dot"+(inviteColor===c?" sel":"")+(taken?" taken":"")}
+              <button key={c} className={"hq-color-dot"+(inviteColor===c?" sel":"")+(taken?" taken":"")+(c==="#F5F5F5"?" pale":"")}
                 style={{background:c}} disabled={taken} onClick={()=>!taken&&setInviteColor(c)}/>
             );})}
           </div>
@@ -837,7 +837,7 @@ function App() {
             <div className="hq-edit-user">
               <div className="hq-s-sub">Editing: {editPlayer.name}</div>
               <input className="hq-input" placeholder="Name" value={editPlayer.name} onChange={e=>setEditPlayer(p=>({...p,name:e.target.value}))}/>
-              <div className="hq-color-row">{COLORS.map(c=><button key={c} className={"hq-color-dot"+(editPlayer.color===c?" sel":"")} style={{background:c}} onClick={()=>setEditPlayer(p=>({...p,color:c}))}/>)}</div>
+              <div className="hq-color-row">{COLORS.map(c=><button key={c} className={"hq-color-dot"+(editPlayer.color===c?" sel":"")+(c==="#F5F5F5"?" pale":"")} style={{background:c}} onClick={()=>setEditPlayer(p=>({...p,color:c}))}/>)}</div>
               <button className="hq-btn-dark" disabled={saving} onClick={savePlayerEdit}>{saving?"Saving…":"Save"}</button>
               <button className="hq-btn-cancel" onClick={()=>setEditPlayer(null)}>Back</button>
             </div>:
@@ -866,7 +866,7 @@ function App() {
                   style={{marginBottom:8}}/>
                 <div className="hq-color-row" style={{marginBottom:8}}>
                   {COLORS.map(c=>{const taken=takenColors.includes(c);return(
-                    <button key={c} className={"hq-color-dot"+(inviteColor===c?" sel":"")+(taken?" taken":"")}
+                    <button key={c} className={"hq-color-dot"+(inviteColor===c?" sel":"")+(taken?" taken":"")+(c==="#F5F5F5"?" pale":"")}
                       style={{background:c}} disabled={taken} onClick={()=>!taken&&setInviteColor(c)}/>
                   );})}
                 </div>
@@ -1149,9 +1149,11 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-btn-sm{background:#fff;border:1.5px solid var(--ink);border-radius:8px;padding:6px 10px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;}
 .hq-btn-sm.danger{color:#BB3333;border-color:#ddb0b0;}
 .hq-color-row{display:grid;grid-template-columns:repeat(10,28px);gap:8px;margin:4px auto;width:fit-content;}
-.hq-color-dot{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:transform .1s;}
+.hq-color-dot{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:transform .1s;position:relative;}
 .hq-color-dot.sel{border-color:var(--ink);box-shadow:0 0 0 2px #fff,0 0 0 4px var(--ink);}
-.hq-color-dot.taken{opacity:.2;cursor:not-allowed;}
+.hq-color-dot.taken{cursor:not-allowed;}
+.hq-color-dot.taken::after{content:'';position:absolute;inset:0;border-radius:50%;border:2px solid #E53935;background:linear-gradient(135deg,transparent calc(50% - 1px),#E53935 calc(50% - 1px),#E53935 calc(50% + 1px),transparent calc(50% + 1px));pointer-events:none;}
+.hq-color-dot.pale{border-color:rgba(0,0,0,0.3);}
 .hq-edit-user{display:flex;flex-direction:column;gap:10px;}
 .hq-invite-section{border-top:1.5px dashed var(--ink);margin-top:16px;padding-top:16px;}
 .hq-wrap-section{border-top:1.5px dashed var(--ink);margin-top:16px;padding-top:16px;}
