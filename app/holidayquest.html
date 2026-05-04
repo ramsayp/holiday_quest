@@ -481,7 +481,7 @@ function App() {
     });
     lines.push("","SUMMARY");
     players.forEach(p=>{const s=userStats(p.id);lines.push(`${p.name},${s.points} pts,${s.visited} places,${s.checkins} check-ins,${s.tagged} tagged`);});
-    setExportTxt(lines.join("\n")); setSheet({type:"export"});
+    setExportTxt(lines.join("\n"));
   }
 
   function userStats(uid){
@@ -682,7 +682,7 @@ function App() {
         <div className="hq-logo"><MiniMap/><span className="hq-logo-txt">{game?.name}</span></div>
         <div style={{display:"flex",gap:8}}>
           {isAdmin&&<button className="hq-icon-btn" title="Reopen" onClick={reopenHoliday}>↩️</button>}
-          {isAdmin&&<button className="hq-icon-btn" onClick={buildExport}>📊</button>}
+          {isAdmin&&<button className="hq-icon-btn" onClick={()=>{buildExport();setSheet({type:"export"});}}>📊</button>}
         </div>
       </div>
       <div className="hq-hero" style={{"--c":myPlayer?.color||"#888"}}>
@@ -832,7 +832,8 @@ function App() {
         <div className="hq-admin-tabs">
           <button className={"hq-atab"+(adminTab==="players"?" on":"")} onClick={()=>setAdminTab("players")}>Players</button>
           <button className={"hq-atab"+(adminTab==="places"?" on":"")} onClick={()=>setAdminTab("places")}>Places</button>
-          <button className="hq-atab" onClick={buildExport}>Export</button>
+          <button className={"hq-atab"+(adminTab==="export"?" on":"")} onClick={()=>{buildExport();setAdminTab("export");}}>Export</button>
+          <button className={"hq-atab"+(adminTab==="finish"?" on":"")} onClick={()=>setAdminTab("finish")}>Finish</button>
         </div>
 
         {adminTab==="players"&&<>{editPlayer?
@@ -911,7 +912,9 @@ function App() {
           </>
         }</>}
 
-        <div className="hq-wrap-section">
+        {adminTab==="export"&&<ExportSheet txt={exportTxt} onClose={()=>setAdminTab("players")} onCopy={()=>navigator.clipboard?.writeText(exportTxt).then(()=>showToast("Copied!")).catch(()=>showToast("Copy manually","err"))}/>}
+
+        {adminTab==="finish"&&<div className="hq-wrap-section" style={{border:"none",margin:0,padding:0}}>
           <div className="hq-wrap-label">End of holiday</div>
           {!wrapConfirm?
             <button className="hq-btn-wrap" onClick={()=>setWrapConfirm(true)}>🎉 Wrap Up Holiday</button>:
@@ -923,11 +926,10 @@ function App() {
               </div>
             </div>
           }
-        </div>
+        </div>}
         <button className="hq-btn-cancel" style={{marginTop:8}} onClick={closeSheet}>Close</button>
       </>}
 
-      {sheet.type==="export"&&<ExportSheet txt={exportTxt} onClose={closeSheet} onCopy={()=>navigator.clipboard?.writeText(exportTxt).then(()=>showToast("Copied!")).catch(()=>showToast("Copy manually","err"))}/>}
     </div></div>}
 
     {toast&&<div className={"hq-toast"+(toast.type==="err"?" err":"")}>{toast.msg}</div>}
