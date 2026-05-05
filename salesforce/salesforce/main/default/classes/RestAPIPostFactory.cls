@@ -22,6 +22,7 @@ global class RestAPIPostFactory {
             when 'UpdatePlace'       { return new HQ_UpdatePlaceHandler(); }
             when 'WrapHoliday'       { return new HQ_WrapHolidayHandler(); }
             when 'ReopenHoliday'     { return new HQ_ReopenHolidayHandler(); }
+            when 'DeleteHoliday'     { return new HQ_DeleteHolidayHandler(); }
             when else                { return null; }
         }
     }

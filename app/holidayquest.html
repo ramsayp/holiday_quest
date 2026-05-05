@@ -91,6 +91,8 @@ function App() {
   const [toast,setToast]             = useState(null);
   const [busy,setBusy]               = useState(false);
   const [wrapConfirm,setWrapConfirm] = useState(false);
+  const [deleteStep,setDeleteStep]   = useState(null); // null | "confirm" | "hold"
+  const [holdProgress,setHoldProgress] = useState(0);
 
   // Auth forms
   const [authName,setAuthName]   = useState("");
@@ -126,8 +128,10 @@ function App() {
   const [inviteColor,setInviteColor] = useState("#3D9BB5");
   const [inviting,setInviting]       = useState(false);
 
-  const gameRef   = useRef(game);
-  const jwtRef    = useRef(jwt);
+  const gameRef      = useRef(game);
+  const jwtRef       = useRef(jwt);
+  const holdTimerRef = useRef(null);
+  const holdStartRef = useRef(null);
   const playerRef = useRef(myPlayer);
   const clientRef = useRef(client);
   useEffect(()=>{gameRef.current=game;},[game]);
@@ -488,6 +492,36 @@ function App() {
     try{await api("ReopenHoliday",{holidayId:gameRef.current.holidayId},jwtRef.current);await loadGame();setStatus("app");showToast("Holiday reopened!");}
     catch(e){showToast(e.message,"err");}
     setSaving(false);
+  }
+
+  async function deleteHoliday(){
+    setSaving(true);
+    try{
+      await api("DeleteHoliday",{holidayId:gameRef.current.holidayId},jwtRef.current);
+      closeSheet();
+      await loadHolidays();
+      setGame(null);setMyPlayer(null);
+      setStatus("holidays");
+      showToast("Holiday deleted.");
+    }catch(e){showToast(e.message,"err");setDeleteStep(null);setHoldProgress(0);}
+    setSaving(false);
+  }
+
+  function startHold(e){
+    e.preventDefault();
+    if(holdTimerRef.current) return;
+    holdStartRef.current=Date.now();
+    holdTimerRef.current=setInterval(()=>{
+      const elapsed=Date.now()-holdStartRef.current;
+      const prog=Math.min(100,(elapsed/5000)*100);
+      setHoldProgress(prog);
+      if(prog>=100){clearInterval(holdTimerRef.current);holdTimerRef.current=null;deleteHoliday();}
+    },50);
+  }
+
+  function cancelHold(){
+    if(holdTimerRef.current){clearInterval(holdTimerRef.current);holdTimerRef.current=null;}
+    setHoldProgress(0);
   }
 
   function buildExport(){
@@ -1048,6 +1082,37 @@ function App() {
                 </div>
               </div>
             }
+
+            <div className="hq-delete-section">
+              <div className="hq-wrap-label">DANGER ZONE</div>
+              {deleteStep===null&&
+                <button className="hq-btn-danger" onClick={()=>setDeleteStep("confirm")}>🗑️ Delete Holiday</button>
+              }
+              {deleteStep==="confirm"&&
+                <div className="hq-confirm-box">
+                  <div className="hq-confirm-msg">Permanently delete this holiday? All players, places, and check-ins will be gone forever.</div>
+                  <div className="hq-confirm-btns">
+                    <button className="hq-btn-cancel" onClick={()=>setDeleteStep(null)}>Cancel</button>
+                    <button className="hq-btn-danger-sm" onClick={()=>setDeleteStep("hold")}>Yes, continue →</button>
+                  </div>
+                </div>
+              }
+              {deleteStep==="hold"&&
+                <div className="hq-confirm-box">
+                  <div className="hq-confirm-msg">Hold the button for 5 seconds to permanently delete.</div>
+                  <button
+                    className="hq-hold-btn"
+                    onMouseDown={startHold} onMouseUp={cancelHold} onMouseLeave={cancelHold}
+                    onTouchStart={startHold} onTouchEnd={cancelHold} onTouchCancel={cancelHold}
+                    disabled={saving}
+                  >
+                    <span className="hq-hold-fill" style={{width:holdProgress+"%"}}/>
+                    <span className="hq-hold-label">{saving?"Deleting…":"Hold to delete"}</span>
+                  </button>
+                  <button className="hq-btn-cancel" style={{marginTop:8,width:"100%"}} onClick={()=>{cancelHold();setDeleteStep(null);}}>Cancel</button>
+                </div>
+              }
+            </div>
           </div>}
 
         </div>
@@ -1321,6 +1386,12 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-eye-btn{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;padding:4px;line-height:1;user-select:none;}
 .hq-tag-row.selected{background:var(--paper2);border-color:var(--coral);}
 .hq-tag-check{color:var(--coral);font-size:18px;font-weight:700;}
+.hq-delete-section{border-top:1.5px dashed var(--ink);margin-top:16px;padding-top:16px;}
+.hq-btn-danger{width:100%;background:#c0392b;border:1.5px solid #922b21;color:#fff;border-radius:10px;padding:14px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:8px;}
+.hq-btn-danger-sm{flex:1;background:#c0392b;border:1.5px solid #922b21;color:#fff;border-radius:10px;padding:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;}
+.hq-hold-btn{width:100%;position:relative;border:1.5px solid #922b21;border-radius:10px;padding:14px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;overflow:hidden;background:#fff4f4;color:#c0392b;user-select:none;-webkit-user-select:none;touch-action:none;}
+.hq-hold-fill{position:absolute;left:0;top:0;bottom:0;background:#c0392b;opacity:.18;transition:none;}
+.hq-hold-label{position:relative;z-index:1;}
 @keyframes toast{from{transform:translate(-50%,70px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
 @keyframes rise{from{transform:translateY(14px);opacity:0}to{transform:translateY(0);opacity:1}}`;
 
