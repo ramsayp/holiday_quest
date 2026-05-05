@@ -120,6 +120,7 @@ function App() {
   const [confirmRemovePlayer,setConfirmRemovePlayer] = useState(null);
   const [confirmRemovePlace,setConfirmRemovePlace]   = useState(null);
   const [tagSelection,setTagSelection] = useState([]);
+  const [pendingCheckInId,setPendingCheckInId] = useState(null);
   const [inviteEmail,setInviteEmail] = useState("");
   const [inviteName,setInviteName]   = useState("");
   const [inviteColor,setInviteColor] = useState("#3D9BB5");
@@ -389,22 +390,23 @@ function App() {
 
   async function submitTags(){
     const place=sheet?.data; if(!place||tagSelection.length===0) return;
+    const isEdit=sheet?.type==="editCheckin";
+    const sel=[...tagSelection];
     closeSheet();
     setTagSelection([]);
     try{
-      // Check in yourself first if not already visited
       if(!isVisited(myPlayer.id,place.id)){
         await api("CreateCheckin",{playerId:myPlayer.id,placeId:place.id,taggedById:null},jwtRef.current);
       }
-      // Tag each selected player (skip if already checked in)
-      for(const taggedId of tagSelection){
+      for(const taggedId of sel){
         if(!isVisited(taggedId,place.id)){
           await api("CreateCheckin",{playerId:taggedId,placeId:place.id,taggedById:myPlayer.id},jwtRef.current);
         }
       }
       await loadGame();
-      const names=tagSelection.map(id=>gameRef.current.players?.find(p=>p.id===id)?.name).filter(Boolean);
-      showToast(`Checked in & tagged ${names.join(", ")} at ${place.name}`);
+      const names=sel.map(id=>gameRef.current.players?.find(p=>p.id===id)?.name).filter(Boolean);
+      if(isEdit) showToast(`Added ${names.join(", ")} to ${place.name}`);
+      else showToast(`Checked in & tagged ${names.join(", ")} at ${place.name}`);
     }
     catch(e){showToast(e.message,"err");}
   }
@@ -754,15 +756,23 @@ function App() {
             <div className="hq-card-emoji">{CAT_EMOJI[p.category]||"📍"}</div>
             <div className="hq-card-body">
               <div className="hq-card-cat">{p.category}</div>
-              <div className="hq-card-name">{p.name}</div>
+              <div className="hq-card-name">{visited&&<span className="hq-tick">✓</span>}{p.name}</div>
               <div className="hq-card-meta">
                 <span className="hq-pts">+{p.points}</span>
                 {visitors.length>0&&<div className="hq-avas">{visitors.slice(0,4).map(v=><span key={v.id} className="hq-av" style={{background:v.color,width:22,height:22,fontSize:11}}>{initial(v.name)}</span>)}</div>}
               </div>
             </div>
             <div className="hq-card-actions">
-              {!visited?<button className="hq-btn-go" disabled={busy||saving} onClick={()=>checkIn(p)}>{busy?"…":"Check in"}</button>:<div className="hq-stamp">DONE</div>}
-              <button className="hq-btn-tag" onClick={()=>setSheet({type:"tag",data:p})}>Check in & tag</button>
+              {!visited
+                ? pendingCheckInId===p.id
+                  ? <button className="hq-btn-go hq-btn-go-confirm" disabled={busy||saving} onClick={()=>{setPendingCheckInId(null);checkIn(p);}}>{busy?"…":"Confirm"}</button>
+                  : <button className="hq-btn-go" disabled={busy||saving} onClick={()=>setPendingCheckInId(p.id)}>Check in</button>
+                : <button className="hq-btn-again" onClick={()=>setSheet({type:"editCheckin",data:p})}>Check in again</button>
+              }
+              {visited
+                ? <button className="hq-btn-tag" onClick={()=>setSheet({type:"editCheckin",data:p})}>Check in &amp; tag again</button>
+                : <button className="hq-btn-tag" onClick={()=>{setPendingCheckInId(null);setSheet({type:"tag",data:p});}}>Check in &amp; tag</button>
+              }
             </div>
           </article>;
         })}</div>
@@ -793,7 +803,7 @@ function App() {
       {sheet.type==="tag"&&<>
         <div className="hq-s-eye">CHECK IN & TAG</div>
         <div className="hq-s-title">{sheet.data?.name}</div>
-        <div className="hq-s-sub">Select everyone who was here — you'll all be checked in.</div>
+        <div className="hq-s-sub">Select everyone who was here, then hit Confirm.</div>
         {(game?.players||[])
           .filter(p=>p.id!==myPlayer?.id && !isVisited(p.id,sheet.data?.id))
           .map(p=>{
@@ -809,7 +819,31 @@ function App() {
           <div className="hq-empty" style={{padding:"16px 0",opacity:.4}}>Everyone here has already visited!</div>
         }
         <button className="hq-btn-dark" disabled={tagSelection.length===0} onClick={submitTags}>
-          Tag {tagSelection.length>0?tagSelection.length+" person"+(tagSelection.length>1?"s":""):"someone"}
+          Confirm{tagSelection.length>0?" ("+tagSelection.length+" player"+(tagSelection.length>1?"s":"")+")":" — select someone"}
+        </button>
+        <button className="hq-btn-cancel" onClick={()=>{closeSheet();setTagSelection([]);}}>Cancel</button>
+      </>}
+
+      {sheet.type==="editCheckin"&&<>
+        <div className="hq-s-eye">EDIT CHECK-IN</div>
+        <div className="hq-s-title">{sheet.data?.name}</div>
+        <div className="hq-s-sub">Add any players you missed — select them and confirm.</div>
+        {(game?.players||[])
+          .filter(p=>p.id!==myPlayer?.id && !isVisited(p.id,sheet.data?.id))
+          .map(p=>{
+            const sel=tagSelection.includes(p.id);
+            return <button key={p.id} className={"hq-tag-row"+(sel?" selected":"")} onClick={()=>toggleTag(p.id)}>
+              <div className="hq-av" style={{background:p.color,width:38,height:38,fontSize:17}}>{initial(p.name)}</div>
+              <div className="hq-tag-nm">{p.name}</div>
+              {sel?<div className="hq-tag-check">✓</div>:<div className="hq-pts">+{sheet.data?.points}</div>}
+            </button>;
+          })
+        }
+        {(game?.players||[]).filter(p=>p.id!==myPlayer?.id&&!isVisited(p.id,sheet.data?.id)).length===0&&
+          <div className="hq-empty" style={{padding:"16px 0",opacity:.4}}>Everyone has already been checked in!</div>
+        }
+        <button className="hq-btn-dark" disabled={tagSelection.length===0} onClick={submitTags}>
+          Add {tagSelection.length>0?tagSelection.length+" player"+(tagSelection.length>1?"s":""):"players"}
         </button>
         <button className="hq-btn-cancel" onClick={()=>{closeSheet();setTagSelection([]);}}>Cancel</button>
       </>}
@@ -1103,6 +1137,10 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-btn-tag{background:#fff;border:1.5px solid var(--ink);color:var(--ink);padding:9px 13px;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:2px 2px 0 var(--ink);white-space:nowrap;}
 .hq-btn-tag:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);}
 .hq-stamp{border:2px solid var(--terra);color:var(--terra);padding:7px 9px;border-radius:8px;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:3px;transform:rotate(-2deg);}
+.hq-tick{color:#3a9e5f;font-weight:700;margin-right:5px;font-size:15px;}
+.hq-btn-again{background:#fff;border:1.5px solid var(--ink);color:var(--ink);padding:9px 13px;border-radius:10px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;box-shadow:2px 2px 0 var(--ink);white-space:nowrap;opacity:.75;}
+.hq-btn-again:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);}
+.hq-btn-go.hq-btn-go-confirm{background:var(--terra);}
 .hq-feed-row{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:center;gap:11px;box-shadow:3px 3px 0 var(--ink);animation:rise .4s both cubic-bezier(.2,.8,.3,1);}
 .hq-feed-row.tag{background:var(--paper2);border-style:dashed;}
 .hq-feed-line{font-size:14px;line-height:1.4;}
