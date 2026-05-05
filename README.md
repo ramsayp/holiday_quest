@@ -215,6 +215,18 @@ Single HTML file — React 18 via CDN, Babel standalone, no build step.
 | hq_holiday | Last active holidayId |
 | hq_player | Last active playerId |
 
+### Leaderboard & Ranking
+
+Uses **competition ranking** (1, 1, 3 style) — players with equal points share the same rank.
+
+| Behaviour | Detail |
+|---|---|
+| Tied rank | Both players receive the same rank number (e.g. two players on 500pts both show rank 1) |
+| Tie indicator | A small `=` badge appears above the rank number in the leaderboard list |
+| Podium heights | Block height is driven by rank, not array position — tied players render at the same height (rank 1 → 110px, rank 2 → 78px, rank 3 → 58px) |
+| Zero points | Podium block renders flat (8px) with the rank label shown above the block |
+| Podium label | Tied podium positions show `=N` (e.g. `=1`) instead of the position number |
+
 ### App Statuses (screens)
 | Status | Screen |
 |---|---|
