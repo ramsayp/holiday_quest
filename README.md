@@ -1,6 +1,6 @@
 # HolidayQuest
 
-A real-time group holiday gamification app. Players check in to venues, tag friends, earn points, and compete on a live leaderboard. Built on Salesforce, Cloudflare Workers, and GitHub Pages as a PWA.
+A real-time group holiday gamification app. Players check in to venues, complete challenges, tag friends, earn points, and compete on a live leaderboard. Built on Salesforce, Cloudflare Workers, and GitHub Pages as a PWA.
 
 ---
 
@@ -53,13 +53,27 @@ holiday_quest/
 │   │   ├── HQ_AddPlaceHandler.cls
 │   │   ├── HQ_UpdatePlaceHandler.cls
 │   │   ├── HQ_RemovePlaceHandler.cls
+│   │   ├── HQ_AddChallengeHandler.cls
+│   │   ├── HQ_RemoveChallengeHandler.cls
+│   │   ├── HQ_CreateChallengeCheckinHandler.cls
 │   │   ├── HQ_WrapHolidayHandler.cls
 │   │   ├── HQ_ReopenHolidayHandler.cls
 │   │   └── HQ_DeleteHolidayHandler.cls
 │   └── objects/
-│       └── Checkin__c/
+│       ├── Checkin__c/
+│       │   └── fields/
+│       │       └── Parent_Checkin__c.field-meta.xml  # Session grouping self-lookup
+│       ├── Challenge__c/
+│       │   └── fields/
+│       │       ├── Holiday__c.field-meta.xml
+│       │       ├── Place__c.field-meta.xml
+│       │       ├── Created_By__c.field-meta.xml
+│       │       ├── Notes__c.field-meta.xml
+│       │       └── Points__c.field-meta.xml
+│       └── Challenge_Checkin__c/
 │           └── fields/
-│               └── Parent_Checkin__c.field-meta.xml  # Session grouping self-lookup
+│               ├── Challenge__c.field-meta.xml
+│               └── Player__c.field-meta.xml
 ├── cloudflare/
 │   ├── worker.js                 # Cloudflare Worker proxy
 │   └── wrangler.toml             # Wrangler deployment config
@@ -126,6 +140,23 @@ holiday_quest/
 | Tagged_By__c | Lookup(Player) | Null = self check-in, populated = tagged by this player |
 | Parent_Checkin__c | Lookup(Checkin) | Groups check-ins into visit sessions. Null = session starter (main). Tagged players point to the main check-in |
 
+**Challenge__c** — Master-Detail to Holiday
+| Field | Type | Notes |
+|---|---|---|
+| Name | Text | Challenge title |
+| Holiday__c | Master-Detail | Cascade deletes on holiday delete |
+| Place__c | Lookup(Place) | Optional — null = generic challenge |
+| Created_By__c | Lookup(Player) | Who created the challenge |
+| Notes__c | Long Text | Optional description |
+| Points__c | Number | Points awarded on completion (default 100) |
+
+**Challenge_Checkin__c** — Master-Detail to Challenge
+| Field | Type | Notes |
+|---|---|---|
+| Challenge__c | Master-Detail | Cascade deletes on challenge delete |
+| Player__c | Lookup(Player) | Who completed it |
+| One per player per challenge enforced in Apex | | |
+
 ---
 
 ## Apex Classes
@@ -148,7 +179,7 @@ holiday_quest/
 |---|---|---|
 | HQ_CreateHolidayHandler | JWT | Create Holiday + admin Player for creator |
 | HQ_GetMyHolidaysHandler | JWT | Get all holidays for a clientId |
-| HQ_GetHolidayStateHandler | JWT | Get full game state (players, places, checkins) |
+| HQ_GetHolidayStateHandler | JWT | Get full game state (players, places, checkins, challenges, challengeCheckins) |
 | HQ_AddPlayerByEmailHandler | JWT | Add player by email. Creates placeholder if not registered |
 | HQ_CreateCheckinHandler | JWT | Create checkin. Accepts `taggedById`, `parentCheckinId`, `allowRepeat`. `allowRepeat: true` bypasses the duplicate check for repeat visits |
 | HQ_UpdatePlayerHandler | JWT | Update player name and colour |
@@ -156,6 +187,9 @@ holiday_quest/
 | HQ_AddPlaceHandler | JWT | Add a venue |
 | HQ_UpdatePlaceHandler | JWT | Update venue name, points, category |
 | HQ_RemovePlaceHandler | JWT | Delete venue (cascade deletes checkins) |
+| HQ_AddChallengeHandler | JWT | Add a challenge. Accepts `name`, `notes`, `points`, optional `placeId`. Defaults to 100pts |
+| HQ_RemoveChallengeHandler | JWT | Delete a challenge (cascade deletes its check-ins) |
+| HQ_CreateChallengeCheckinHandler | JWT | Mark a challenge as completed by a player. Rejects duplicates — one per player per challenge |
 | HQ_WrapHolidayHandler | JWT | End holiday — show final results only |
 | HQ_ReopenHolidayHandler | JWT | Reopen wrapped holiday |
 | HQ_DeleteHolidayHandler | JWT | Permanently delete holiday and all child records |
@@ -222,6 +256,14 @@ Single HTML file — React 18 via CDN, Babel standalone, no build step.
 | hq_holiday | Last active holidayId |
 | hq_player | Last active playerId |
 
+### Tabs
+| Tab | Description |
+|---|---|
+| Places | Venue list with check-in actions |
+| Challenges | Challenge list with completion tracking |
+| Activity | Combined feed of place check-ins and challenge completions |
+| Ranking | Leaderboard and podium |
+
 ### Check-in Flows
 
 **First visit — solo:**
@@ -239,6 +281,9 @@ Check in & tag again → select players (all shown, "been before" note on prior 
 **Edit a previous visit:**
 Edit check-in → list of sessions for that place → tap a session → see who was missed → select and add → new records created linked to that session's main check-in via `Parent_Checkin__c`
 
+**Challenge completion:**
+Challenges tab → tap Check in → one-time completion recorded. Card turns beige with ✓. Points awarded immediately.
+
 ### Visit Sessions
 
 A **session** is a group of check-ins at the same place that happened together. It is defined by:
@@ -246,6 +291,16 @@ A **session** is a group of check-ins at the same place that happened together. 
 - Zero or more **child** check-ins (`Parent_Checkin__c = main.id`) — tagged players
 
 `Tagged_By__c` is preserved on child records and records who did the tagging within the session.
+
+### Challenges
+
+Two types of challenge:
+- **Place-tied** — linked to a specific venue. Accessible via the 🎯 Check in Challenges button on the place card, which navigates to the Challenges tab pre-filtered to that place.
+- **Generic** — not tied to any place. Shown alongside place-tied challenges in the full list.
+
+Both admins and players can add and delete their own challenges. Admins can delete any challenge.
+
+Points from challenge completions are included in player totals and leaderboard ranking.
 
 ### Admin Panel
 
@@ -263,6 +318,12 @@ Accessible via the ⚙️ icon (admin players only). Available in both `app` and
 **Delete Holiday** — permanently deletes the Holiday record and all child Players, Places, and Check-ins. Two-step confirmation:
 1. Click "Delete Holiday" → confirmation prompt
 2. Click "Yes, continue →" → hold button fills red over 5 seconds (release early to cancel)
+
+### Points
+
+Player points are the sum of:
+- All place check-ins (each check-in awards the place's `Points__c` value, including repeat visits)
+- All challenge completions (each completion awards the challenge's `Points__c` value, one per player per challenge)
 
 ### Leaderboard & Ranking
 
@@ -323,8 +384,8 @@ Goes to Register tab → enters email → placeholder detected → redirected to
 
 ### Guest User Permissions
 The guest user profile needs:
-- **Object permissions:** Read, Create, Edit on Client, Holiday, Player, Place, Checkin
-- **Permission Set:** Delete permission on Holiday, Player, and Place (can't be set on guest profile directly — use a Permission Set assigned to the guest user)
+- **Object permissions:** Read, Create, Edit, Delete on Client, Holiday, Player, Place, Checkin, Challenge, Challenge_Checkin
+- **Permission Set:** Delete permission on Holiday, Player, Place, Challenge, and Challenge_Checkin (can't be set on guest profile directly — use a Permission Set assigned to the guest user)
 - **Field-level security:** Read/Edit on all custom fields
 - **Apex Class Access:** RestAPIPostEndpoint
 
@@ -354,14 +415,19 @@ The guest user profile needs:
 
 All `sf` commands run from `holiday_quest/salesforce/`.
 
-Deploy one or more classes:
+Deploy everything:
 ```powershell
-sf project deploy start --source-dir salesforce/main/default/classes/HQ_CreateCheckinHandler.cls --source-dir salesforce/main/default/classes/HQ_GetHolidayStateHandler.cls
+sf project deploy start
 ```
 
-Deploy a new custom field (deploy field before dependent classes):
+Deploy specific files (repeat `--source-dir` for each):
 ```powershell
-sf project deploy start --source-dir salesforce/main/default/objects/Checkin__c/fields/Parent_Checkin__c.field-meta.xml
+sf project deploy start --source-dir main/default/classes/HQ_GetHolidayStateHandler.cls --source-dir main/default/classes/HQ_AddChallengeHandler.cls
+```
+
+Deploy a new object and its fields before dependent classes:
+```powershell
+sf project deploy start --source-dir main/default/objects/Challenge__c
 ```
 
 ### Retrieve Salesforce Changes (org → local)
@@ -379,7 +445,6 @@ sf project retrieve start --metadata "Layout" --metadata "PermissionSet"
 - PWA cache requires manual version bump on every deploy
 
 ### Planned Features
-- **Challenges** — venue-specific challenges with peer verification and bonus points
 - **Push notifications** — notify when tagged or new activity
 - **Live shareable leaderboard** — public URL anyone can view without logging in
 - **Holiday templates** — save venue lists for reuse
