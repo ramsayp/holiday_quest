@@ -35,26 +35,30 @@ holiday_quest/
 │   └── icon-512.png              # App icon
 ├── salesforce/                   # Salesforce DX project
 │   ├── sfdx-project.json
-│   └── classes/                  # Apex classes
-│       ├── RestAPIPostEndpoint.cls
-│       ├── RestAPIPostFactory.cls
-│       ├── RestAPIPostInterface.cls
-│       ├── CreateClientHandler.cls
-│       ├── VerifyClientHandler.cls
-│       ├── SetupAccountHandler.cls
-│       ├── CheckEmailHandler.cls
-│       ├── HQ_CreateHolidayHandler.cls
-│       ├── HQ_GetMyHolidaysHandler.cls
-│       ├── HQ_GetHolidayStateHandler.cls
-│       ├── HQ_AddPlayerByEmailHandler.cls
-│       ├── HQ_CreateCheckinHandler.cls
-│       ├── HQ_UpdatePlayerHandler.cls
-│       ├── HQ_RemovePlayerHandler.cls
-│       ├── HQ_AddPlaceHandler.cls
-│       ├── HQ_UpdatePlaceHandler.cls
-│       ├── HQ_RemovePlaceHandler.cls
-│       ├── HQ_WrapHolidayHandler.cls
-│       └── HQ_ReopenHolidayHandler.cls
+│   ├── classes/                  # Apex classes
+│   │   ├── RestAPIPostEndpoint.cls
+│   │   ├── RestAPIPostFactory.cls
+│   │   ├── RestAPIPostInterface.cls
+│   │   ├── CreateClientHandler.cls
+│   │   ├── VerifyClientHandler.cls
+│   │   ├── SetupAccountHandler.cls
+│   │   ├── CheckEmailHandler.cls
+│   │   ├── HQ_CreateHolidayHandler.cls
+│   │   ├── HQ_GetMyHolidaysHandler.cls
+│   │   ├── HQ_GetHolidayStateHandler.cls
+│   │   ├── HQ_AddPlayerByEmailHandler.cls
+│   │   ├── HQ_CreateCheckinHandler.cls
+│   │   ├── HQ_UpdatePlayerHandler.cls
+│   │   ├── HQ_RemovePlayerHandler.cls
+│   │   ├── HQ_AddPlaceHandler.cls
+│   │   ├── HQ_UpdatePlaceHandler.cls
+│   │   ├── HQ_RemovePlaceHandler.cls
+│   │   ├── HQ_WrapHolidayHandler.cls
+│   │   └── HQ_ReopenHolidayHandler.cls
+│   └── objects/
+│       └── Checkin__c/
+│           └── fields/
+│               └── Parent_Checkin__c.field-meta.xml  # Session grouping self-lookup
 ├── cloudflare/
 │   ├── worker.js                 # Cloudflare Worker proxy
 │   └── wrangler.toml             # Wrangler deployment config
@@ -119,6 +123,7 @@ holiday_quest/
 | Player__c | Master-Detail | Who was checked in |
 | Place__c | Master-Detail | Where |
 | Tagged_By__c | Lookup(Player) | Null = self check-in, populated = tagged by this player |
+| Parent_Checkin__c | Lookup(Checkin) | Groups check-ins into visit sessions. Null = session starter (main). Tagged players point to the main check-in |
 
 ---
 
@@ -144,7 +149,7 @@ holiday_quest/
 | HQ_GetMyHolidaysHandler | JWT | Get all holidays for a clientId |
 | HQ_GetHolidayStateHandler | JWT | Get full game state (players, places, checkins) |
 | HQ_AddPlayerByEmailHandler | JWT | Add player by email. Creates placeholder if not registered |
-| HQ_CreateCheckinHandler | JWT | Create checkin. taggedById null = self, populated = tag |
+| HQ_CreateCheckinHandler | JWT | Create checkin. Accepts `taggedById`, `parentCheckinId`, `allowRepeat`. `allowRepeat: true` bypasses the duplicate check for repeat visits |
 | HQ_UpdatePlayerHandler | JWT | Update player name and colour |
 | HQ_RemovePlayerHandler | JWT | Delete player (cascade deletes checkins) |
 | HQ_AddPlaceHandler | JWT | Add a venue |
@@ -214,6 +219,31 @@ Single HTML file — React 18 via CDN, Babel standalone, no build step.
 | hq_client | `{ clientId, name, email }` |
 | hq_holiday | Last active holidayId |
 | hq_player | Last active playerId |
+
+### Check-in Flows
+
+**First visit — solo:**
+Check in → Confirm → place marked visited (beige card + green ✓ in name)
+
+**First visit — with others:**
+Check in & tag → select players → Confirm → self check-in created first (becomes session main), tagged players linked to it via `Parent_Checkin__c`
+
+**Repeat visit — solo:**
+Check in again → Confirm → new `Checkin__c` record created (`allowRepeat: true`). Visit tally badge (×2, ×3…) shown next to ✓
+
+**Repeat visit — with others:**
+Check in & tag again → select players (all shown, "been before" note on prior visitors) → Confirm → new session created
+
+**Edit a previous visit:**
+Edit check-in → list of sessions for that place → tap a session → see who was missed → select and add → new records created linked to that session's main check-in via `Parent_Checkin__c`
+
+### Visit Sessions
+
+A **session** is a group of check-ins at the same place that happened together. It is defined by:
+- A **main** check-in (`Parent_Checkin__c = null`) — the person who initiated the check-in
+- Zero or more **child** check-ins (`Parent_Checkin__c = main.id`) — tagged players
+
+`Tagged_By__c` is preserved on child records and records who did the tagging within the session.
 
 ### Leaderboard & Ranking
 
@@ -302,14 +332,23 @@ The guest user profile needs:
 3. `cd .. && git add -A && git commit -m "update worker" && git push`
 
 ### Deploy Salesforce Changes
-1. Edit class in `salesforce/classes/`
-2. Deploy via Salesforce CLI: `sf project deploy start --target-org holidayquest`
-3. Or paste into Developer Console manually
-4. `git add -A && git commit -m "update apex" && git push`
 
-### Retrieve Salesforce Classes
-```bash
-sf project retrieve start --metadata ApexClass --target-org holidayquest
+All `sf` commands run from `holiday_quest/salesforce/`.
+
+Deploy one or more classes:
+```powershell
+sf project deploy start --source-dir salesforce/main/default/classes/HQ_CreateCheckinHandler.cls --source-dir salesforce/main/default/classes/HQ_GetHolidayStateHandler.cls
+```
+
+Deploy a new custom field (deploy field before dependent classes):
+```powershell
+sf project deploy start --source-dir salesforce/main/default/objects/Checkin__c/fields/Parent_Checkin__c.field-meta.xml
+```
+
+### Retrieve Salesforce Changes (org → local)
+```powershell
+sf project retrieve start --metadata "ApexClass"
+sf project retrieve start --metadata "Layout" --metadata "PermissionSet"
 ```
 
 ---
