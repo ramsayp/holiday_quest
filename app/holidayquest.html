@@ -983,7 +983,7 @@ function App() {
       </>}
 
       {tab==="feed"&&<>
-        {(!game?.checkins||game.checkins.length===0)&&<div className="hq-empty">🍺<br/>No activity yet — get out there!</div>}
+        {(!game?.checkins||game.checkins.length===0)&&(!game?.challengeCheckins||game.challengeCheckins.length===0)&&<div className="hq-empty">🍺<br/>No activity yet — get out there!</div>}
         <div className="hq-list"><ActivityLog game={game}/></div>
       </>}
 
