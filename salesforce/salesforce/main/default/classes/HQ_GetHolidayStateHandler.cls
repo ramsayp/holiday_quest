@@ -60,18 +60,19 @@ global without sharing class HQ_GetHolidayStateHandler implements RestAPIPostInt
         // Checkins
         List<Map<String, Object>> checkinList = new List<Map<String, Object>>();
         for (Checkin__c c : [
-            SELECT Id, Player__c, Place__c, Tagged_By__c, CreatedDate
+            SELECT Id, Player__c, Place__c, Tagged_By__c, Parent_Checkin__c, CreatedDate
             FROM Checkin__c
             WHERE Player__r.Holiday__c = :holidayId
             ORDER BY CreatedDate ASC
         ]) {
             checkinList.add(new Map<String, Object>{
-                'id'         => c.Id,
-                'playerId'   => c.Player__c,
-                'placeId'    => c.Place__c,
-                'taggedById' => c.Tagged_By__c,
-                'isTag'      => c.Tagged_By__c != null,
-                'timestamp'  => c.CreatedDate.getTime()
+                'id'              => c.Id,
+                'playerId'        => c.Player__c,
+                'placeId'         => c.Place__c,
+                'taggedById'      => c.Tagged_By__c,
+                'parentCheckinId' => c.Parent_Checkin__c,
+                'isTag'           => c.Tagged_By__c != null,
+                'timestamp'       => c.CreatedDate.getTime()
             });
         }
  

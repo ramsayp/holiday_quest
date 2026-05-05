@@ -394,24 +394,34 @@ function App() {
 
   async function submitTags(){
     const place=sheet?.data; if(!place||tagSelection.length===0) return;
-    const isEdit=sheet?.type==="editCheckin";
-    const isRepeat=sheet?.type==="tagAgain";
+    const sheetType=sheet?.type;
+    const isRepeat=sheetType==="tagAgain";
+    const isEditSession=sheetType==="editCheckinSession";
+    const sessionId=sheet?.sessionId||null;
     const sel=[...tagSelection];
     closeSheet();
     setTagSelection([]);
     try{
-      // For repeat visits allow re-check-in; for edits only add if not yet visited
-      if(isRepeat||!isVisited(myPlayer.id,place.id)){
-        await api("CreateCheckin",{playerId:myPlayer.id,placeId:place.id,taggedById:null,allowRepeat:isRepeat},jwtRef.current);
-      }
-      for(const taggedId of sel){
-        if(isRepeat||!isVisited(taggedId,place.id)){
-          await api("CreateCheckin",{playerId:taggedId,placeId:place.id,taggedById:myPlayer.id,allowRepeat:isRepeat},jwtRef.current);
+      let mainId=isEditSession?sessionId:null;
+      if(!isEditSession){
+        // Create self check-in first (main/session-starter), capture its ID
+        if(isRepeat||!isVisited(myPlayer.id,place.id)){
+          const res=await api("CreateCheckin",{playerId:myPlayer.id,placeId:place.id,taggedById:null,allowRepeat:isRepeat},jwtRef.current);
+          mainId=res.checkin?.id||null;
         }
+      }
+      // Tag selected players, linking them to the main check-in
+      for(const taggedId of sel){
+        await api("CreateCheckin",{
+          playerId:taggedId,placeId:place.id,
+          taggedById:myPlayer.id,
+          parentCheckinId:mainId,
+          allowRepeat:true
+        },jwtRef.current);
       }
       await loadGame();
       const names=sel.map(id=>gameRef.current.players?.find(p=>p.id===id)?.name).filter(Boolean);
-      if(isEdit) showToast(`Added ${names.join(", ")} to ${place.name}`);
+      if(isEditSession) showToast(`Added ${names.join(", ")} to session at ${place.name}`);
       else showToast(`Checked in & tagged ${names.join(", ")} at ${place.name}`);
     }
     catch(e){showToast(e.message,"err");}
@@ -500,6 +510,18 @@ function App() {
     return {points,visited:visited.size,checkins:mine.filter(c=>!c.isTag).length,tagged:mine.filter(c=>c.isTag).length};
   }
   function isVisited(uid,placeId){return game?.checkins.some(c=>c.playerId===uid&&c.placeId===placeId);}
+
+  function buildSessions(placeId){
+    const all=(game?.checkins||[]).filter(c=>c.placeId===placeId);
+    const mains=all.filter(c=>!c.parentCheckinId);
+    return mains.map(main=>{
+      const children=all.filter(c=>c.parentCheckinId===main.id);
+      const memberIds=new Set([main,...children].map(c=>c.playerId));
+      const memberPlayers=[...memberIds].map(id=>(game?.players||[]).find(p=>p.id===id)).filter(Boolean);
+      const missed=(game?.players||[]).filter(p=>!memberIds.has(p.id));
+      return {main,memberPlayers,missed};
+    });
+  }
 
   const myStats     = myPlayer?userStats(myPlayer.id):{points:0,visited:0,checkins:0,tagged:0};
   const sorted=(game?.players||[]).map(p=>({...p,...userStats(p.id)})).sort((a,b)=>b.points-a.points);
@@ -859,28 +881,59 @@ function App() {
         <button className="hq-btn-cancel" onClick={()=>{closeSheet();setTagSelection([]);}}>Cancel</button>
       </>}
 
-      {sheet.type==="editCheckin"&&<>
-        <div className="hq-s-eye">EDIT CHECK-IN</div>
-        <div className="hq-s-title">{sheet.data?.name}</div>
-        <div className="hq-s-sub">Add any players you missed — select them and confirm.</div>
-        {(game?.players||[])
-          .filter(p=>p.id!==myPlayer?.id && !isVisited(p.id,sheet.data?.id))
-          .map(p=>{
-            const sel=tagSelection.includes(p.id);
-            return <button key={p.id} className={"hq-tag-row"+(sel?" selected":"")} onClick={()=>toggleTag(p.id)}>
-              <div className="hq-av" style={{background:p.color,width:38,height:38,fontSize:17}}>{initial(p.name)}</div>
-              <div className="hq-tag-nm">{p.name}</div>
-              {sel?<div className="hq-tag-check">✓</div>:<div className="hq-pts">+{sheet.data?.points}</div>}
+      {sheet.type==="editCheckin"&&(()=>{
+        const sessions=buildSessions(sheet.data?.id);
+        return <>
+          <div className="hq-s-eye">EDIT CHECK-IN</div>
+          <div className="hq-s-title">{sheet.data?.name}</div>
+          <div className="hq-s-sub">Pick a visit session to add anyone who was missed.</div>
+          {sessions.length===0&&<div className="hq-empty" style={{padding:"16px 0",opacity:.4}}>No sessions yet.</div>}
+          {sessions.map(sess=>{
+            const owner=(game?.players||[]).find(p=>p.id===sess.main.playerId);
+            const d=new Date(sess.main.timestamp);
+            const label=`${d.getDate()} ${d.toLocaleString('default',{month:'short'})} · ${d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
+            const hasMissed=sess.missed.length>0;
+            return <button key={sess.main.id}
+              className={"hq-session-row"+(hasMissed?"":" complete")}
+              disabled={!hasMissed}
+              onClick={()=>{setTagSelection([]);setSheet({type:"editCheckinSession",data:sheet.data,sessionId:sess.main.id,session:sess});}}>
+              <div className="hq-session-top">
+                <span className="hq-session-owner">{owner?.name||"Unknown"}</span>
+                <span className="hq-session-date">{label}</span>
+              </div>
+              <div className="hq-session-members">
+                {sess.memberPlayers.map(p=><span key={p.id} className="hq-av" style={{background:p.color,width:26,height:26,fontSize:11}}>{initial(p.name)}</span>)}
+              </div>
+              {hasMissed
+                ? <div className="hq-session-missed">{sess.missed.length} missed →</div>
+                : <div className="hq-session-complete-lbl">Complete ✓</div>
+              }
             </button>;
-          })
-        }
-        {(game?.players||[]).filter(p=>p.id!==myPlayer?.id&&!isVisited(p.id,sheet.data?.id)).length===0&&
-          <div className="hq-empty" style={{padding:"16px 0",opacity:.4}}>Everyone has already been checked in!</div>
+          })}
+          <button className="hq-btn-cancel" style={{marginTop:8}} onClick={closeSheet}>Close</button>
+        </>;
+      })()}
+
+      {sheet.type==="editCheckinSession"&&<>
+        <div className="hq-s-eye">ADD TO SESSION</div>
+        <div className="hq-s-title">{sheet.data?.name}</div>
+        <div className="hq-s-sub">Select players missed from this visit, then confirm.</div>
+        {(sheet.session?.missed||[]).map(p=>{
+          const sel=tagSelection.includes(p.id);
+          const visitedSeparately=isVisited(p.id,sheet.data?.id);
+          return <button key={p.id} className={"hq-tag-row"+(sel?" selected":"")} onClick={()=>toggleTag(p.id)}>
+            <div className="hq-av" style={{background:p.color,width:38,height:38,fontSize:17}}>{initial(p.name)}</div>
+            <div className="hq-tag-nm">{p.name}{visitedSeparately&&<span className="hq-tag-been"> · own visit</span>}</div>
+            {sel?<div className="hq-tag-check">✓</div>:<div className="hq-pts">+{sheet.data?.points}</div>}
+          </button>;
+        })}
+        {(sheet.session?.missed||[]).length===0&&
+          <div className="hq-empty" style={{padding:"16px 0",opacity:.4}}>Everyone was in this session!</div>
         }
         <button className="hq-btn-dark" disabled={tagSelection.length===0} onClick={submitTags}>
           Add {tagSelection.length>0?tagSelection.length+" player"+(tagSelection.length>1?"s":""):"players"}
         </button>
-        <button className="hq-btn-cancel" onClick={()=>{closeSheet();setTagSelection([]);}}>Cancel</button>
+        <button className="hq-btn-cancel" onClick={()=>{setTagSelection([]);setSheet({type:"editCheckin",data:sheet.data});}}>← Back to sessions</button>
       </>}
 
       {sheet.type==="addPlace"&&<>
@@ -1180,6 +1233,15 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-btn-edit{background:transparent;border:none;color:var(--ink);opacity:.45;font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.5px;cursor:pointer;padding:2px 0;text-decoration:underline;text-underline-offset:2px;align-self:flex-end;}
 .hq-btn-edit:active{opacity:.7;}
 .hq-tag-been{font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.5;}
+.hq-session-row{width:100%;background:#fff;border:1.5px solid var(--ink);border-radius:12px;padding:12px 14px;margin-bottom:8px;text-align:left;cursor:pointer;font-family:inherit;box-shadow:2px 2px 0 var(--ink);}
+.hq-session-row:active:not(:disabled){transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);}
+.hq-session-row.complete{opacity:.5;cursor:default;box-shadow:none;}
+.hq-session-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px;}
+.hq-session-owner{font-family:'DM Serif Display',serif;font-size:15px;}
+.hq-session-date{font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.5;}
+.hq-session-members{display:flex;gap:2px;margin-bottom:6px;}
+.hq-session-missed{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--coral);font-weight:700;letter-spacing:.5px;}
+.hq-session-complete-lbl{font-family:'JetBrains Mono',monospace;font-size:10px;color:#3a9e5f;font-weight:700;}
 .hq-feed-row{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:center;gap:11px;box-shadow:3px 3px 0 var(--ink);animation:rise .4s both cubic-bezier(.2,.8,.3,1);}
 .hq-feed-row.tag{background:var(--paper2);border-style:dashed;}
 .hq-feed-line{font-size:14px;line-height:1.4;}
