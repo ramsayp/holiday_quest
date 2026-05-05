@@ -12,19 +12,22 @@ global without sharing class HQ_CreateCheckinHandler implements RestAPIPostInter
         String placeId    = (String) data.get('placeId');
         String taggedById = (String) data.get('taggedById'); // null for self checkin
  
+        Boolean allowRepeat = data.get('allowRepeat') == true;
+
         if (playerId == null || placeId == null) {
             return new Map<String, Object>{ 'error' => 'Missing playerId or placeId' };
         }
- 
-        // Check not already checked in to this place
-        List<Checkin__c> existing = [
-            SELECT Id FROM Checkin__c
-            WHERE Player__c = :playerId
-            AND Place__c = :placeId
-            LIMIT 1
-        ];
-        if (!existing.isEmpty()) {
-            return new Map<String, Object>{ 'error' => 'Already checked in' };
+
+        if (!allowRepeat) {
+            List<Checkin__c> existing = [
+                SELECT Id FROM Checkin__c
+                WHERE Player__c = :playerId
+                AND Place__c = :placeId
+                LIMIT 1
+            ];
+            if (!existing.isEmpty()) {
+                return new Map<String, Object>{ 'error' => 'Already checked in' };
+            }
         }
  
         Checkin__c c = new Checkin__c(
