@@ -474,6 +474,17 @@ function App() {
     setSaving(false);
   }
 
+  async function checkInChallenge(challengeId){
+    if(busy||saving) return;
+    setBusy(true);
+    try{
+      await api("CreateChallengeCheckin",{challengeId,playerId:myPlayer.id},jwtRef.current);
+      await loadGame();
+      showToast("Challenge checked in! ✓");
+    }catch(e){showToast(e.message,"err");}
+    setBusy(false);
+  }
+
   async function savePlaceEdit(){
     if(!editPlace) return;
     const name=editPlace.name.trim(); if(!name) return showToast("Name can't be empty","err");
@@ -945,16 +956,23 @@ function App() {
             const cPlace=c.placeId?(game?.places||[]).find(p=>p.id===c.placeId):null;
             const creator=(game?.players||[]).find(p=>p.id===c.createdById);
             const canDelete=isAdmin||(c.createdById===myPlayer?.id);
-            return <article key={c.id} className="hq-challenge-card">
+            const completions=(game?.challengeCheckins||[]).filter(cc=>cc.challengeId===c.id);
+            const iDone=completions.some(cc=>cc.playerId===myPlayer?.id);
+            const completedPlayers=completions.map(cc=>(game?.players||[]).find(p=>p.id===cc.playerId)).filter(Boolean);
+            return <article key={c.id} className={"hq-challenge-card"+(iDone?" done":"")}>
               <div className="hq-challenge-body">
-                <div className="hq-card-name">{c.name}</div>
+                <div className="hq-card-name">{iDone&&<span className="hq-tick">✓ </span>}{c.name}</div>
                 {c.notes&&<div className="hq-challenge-notes">{c.notes}</div>}
                 <div className="hq-challenge-meta">
                   {cPlace?<span className="hq-place-badge">{CAT_EMOJI[cPlace.category]||"📍"} {cPlace.name}</span>:<span className="hq-generic-badge">Generic</span>}
                   {creator&&<span className="hq-by">by {creator.name}</span>}
                 </div>
+                {completedPlayers.length>0&&<div className="hq-avas" style={{marginTop:6}}>{completedPlayers.map(p=><span key={p.id} className="hq-av" style={{background:p.color,width:22,height:22,fontSize:11}}>{initial(p.name)}</span>)}</div>}
               </div>
-              {canDelete&&<button className="hq-btn-sm danger" onClick={()=>removeChallenge(c.id)}>✕</button>}
+              <div className="hq-challenge-actions">
+                {!iDone&&<button className="hq-btn-go" disabled={busy||saving} onClick={()=>checkInChallenge(c.id)}>{busy?"…":"Check in"}</button>}
+                {canDelete&&<button className="hq-btn-sm danger" style={{marginTop:4}} onClick={()=>removeChallenge(c.id)}>✕</button>}
+              </div>
             </article>;
           });
         })()}</div>
@@ -1510,7 +1528,9 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-filter-bar{display:flex;align-items:center;justify-content:space-between;background:#EDE8FF;border:1.5px solid var(--ink);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;gap:10px;}
 .hq-filter-clear{background:var(--ink);border:none;color:var(--paper);border-radius:8px;padding:5px 12px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;}
 .hq-challenge-card{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;box-shadow:3px 3px 0 var(--ink);animation:rise .4s both cubic-bezier(.2,.8,.3,1);}
+.hq-challenge-card.done{background:var(--paper2);}
 .hq-challenge-body{flex:1;min-width:0;}
+.hq-challenge-actions{display:flex;flex-direction:column;align-items:flex-end;flex-shrink:0;}
 .hq-challenge-notes{font-size:13px;opacity:.65;margin-top:4px;margin-bottom:6px;line-height:1.4;}
 .hq-challenge-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;}
 .hq-place-badge{font-family:'JetBrains Mono',monospace;font-size:10px;background:#EDE8FF;border:1px solid rgba(14,27,42,.25);border-radius:20px;padding:2px 8px;letter-spacing:.5px;}

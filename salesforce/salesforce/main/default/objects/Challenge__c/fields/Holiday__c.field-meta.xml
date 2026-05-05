@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Holiday__c</fullName>
+    <label>Holiday</label>
+    <referenceTo>Holiday__c</referenceTo>
+    <relationshipLabel>Challenges</relationshipLabel>
+    <relationshipName>Challenges</relationshipName>
+    <relationshipOrder>0</relationshipOrder>
+    <reparentableMasterDetail>false</reparentableMasterDetail>
+    <type>MasterDetail</type>
+</CustomField>

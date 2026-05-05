@@ -20,8 +20,9 @@ global class RestAPIPostFactory {
             when 'AddPlace'          { return new HQ_AddPlaceHandler(); }
             when 'RemovePlace'       { return new HQ_RemovePlaceHandler(); }
             when 'UpdatePlace'       { return new HQ_UpdatePlaceHandler(); }
-            when 'AddChallenge'      { return new HQ_AddChallengeHandler(); }
-            when 'RemoveChallenge'   { return new HQ_RemoveChallengeHandler(); }
+            when 'AddChallenge'             { return new HQ_AddChallengeHandler(); }
+            when 'RemoveChallenge'          { return new HQ_RemoveChallengeHandler(); }
+            when 'CreateChallengeCheckin'   { return new HQ_CreateChallengeCheckinHandler(); }
             when 'WrapHoliday'       { return new HQ_WrapHolidayHandler(); }
             when 'ReopenHoliday'     { return new HQ_ReopenHolidayHandler(); }
             when 'DeleteHoliday'     { return new HQ_DeleteHolidayHandler(); }
