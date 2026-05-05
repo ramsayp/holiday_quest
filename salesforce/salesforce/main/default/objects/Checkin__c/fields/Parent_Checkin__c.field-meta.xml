@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Parent_Checkin__c</fullName>
+    <label>Parent Check-in</label>
+    <referenceTo>Checkin__c</referenceTo>
+    <relationshipLabel>Child Check-ins</relationshipLabel>
+    <relationshipName>Child_Checkins</relationshipName>
+    <type>Lookup</type>
+</CustomField>
