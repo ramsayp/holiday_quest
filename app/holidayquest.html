@@ -967,13 +967,16 @@ function ActivityLog({game}){
 function Podium({leaderboard}){
   return <div className="hq-podium">{[1,0,2].map(idx=>{
     const u=leaderboard[idx]; if(!u) return null;
-    const h={0:110,1:78,2:58}[idx];
     const tied=leaderboard.filter(x=>x.points===u.points).length>1;
+    const label=tied?`=${u.rank}`:u.rank;
+    const flat=u.points===0;
+    const h=flat?8:({1:110,2:78,3:58}[u.rank]||58);
     return <div key={u.id} className="hq-pod-col">
       <div className="hq-pod-av" style={{background:u.color}}>{initial(u.name)}</div>
       <div className="hq-pod-name">{u.name}</div>
       <div className="hq-pod-pts">{u.points}</div>
-      <div className="hq-pod-block" style={{height:h,background:u.color}}><span>{tied?`=${u.rank}`:u.rank}</span></div>
+      {flat&&<span className="hq-pod-rank-above">{label}</span>}
+      <div className="hq-pod-block" style={{height:h,background:u.color}}>{!flat&&<span>{label}</span>}</div>
     </div>;
   })}</div>;
 }
@@ -1110,7 +1113,7 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-pod-col{display:flex;flex-direction:column;align-items:center;}
 .hq-pod-av{width:46px;height:46px;border-radius:50%;border:1.5px solid var(--ink);display:flex;align-items:center;justify-content:center;color:#fff;font-family:'DM Serif Display',serif;font-size:21px;margin-bottom:5px;box-shadow:2px 2px 0 var(--ink);}
 .hq-pod-name{font-family:'DM Serif Display',serif;font-size:13px;margin-bottom:2px;}
-.hq-pod-pts{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--coral);font-weight:700;margin-bottom:5px;}
+.hq-pod-pts{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--coral);font-weight:700;margin-bottom:5px;}.hq-pod-rank-above{font-family:'DM Serif Display',serif;font-size:20px;color:rgba(14,27,42,.45);margin-bottom:4px;}
 .hq-pod-block{width:100%;border:1.5px solid var(--ink);border-radius:7px 7px 0 0;display:flex;align-items:flex-start;justify-content:center;padding-top:8px;}
 .hq-pod-block span{font-family:'DM Serif Display',serif;font-size:20px;color:#fff;}
 .hq-rank-row{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:center;gap:11px;box-shadow:3px 3px 0 var(--ink);}
