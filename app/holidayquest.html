@@ -87,7 +87,7 @@ function App() {
   const [adminTab,setAdminTab]       = useState("players");
   const [editPlayer,setEditPlayer]   = useState(null);
   const [newPlace,setNewPlace]       = useState({name:"",points:"200",category:"Bar"});
-  const [newChallenge,setNewChallenge] = useState({name:"",notes:"",placeId:null});
+  const [newChallenge,setNewChallenge] = useState({name:"",notes:"",placeId:null,points:"100"});
   const [editPlace,setEditPlace]     = useState(null);
   const [exportTxt,setExportTxt]     = useState("");
   const [toast,setToast]             = useState(null);
@@ -457,7 +457,8 @@ function App() {
         playerId:myPlayer.id,
         name,
         notes:newChallenge.notes.trim()||null,
-        placeId:newChallenge.placeId||null
+        placeId:newChallenge.placeId||null,
+        points:parseInt(newChallenge.points)||100
       },jwtRef.current);
       setNewChallenge({name:"",notes:"",placeId:null});
       closeSheet();
@@ -476,11 +477,12 @@ function App() {
 
   async function checkInChallenge(challengeId){
     if(busy||saving) return;
+    const challenge=gameRef.current?.challenges?.find(c=>c.id===challengeId);
     setBusy(true);
     try{
       await api("CreateChallengeCheckin",{challengeId,playerId:myPlayer.id},jwtRef.current);
       await loadGame();
-      showToast("Challenge checked in! ✓");
+      showToast(`+${challenge?.points||0} pts · ${challenge?.name||"Challenge"}`);
     }catch(e){showToast(e.message,"err");}
     setBusy(false);
   }
@@ -579,8 +581,9 @@ function App() {
     if(!game) return {points:0,visited:0,checkins:0,tagged:0};
     const mine=game.checkins.filter(c=>c.playerId===uid);
     const visited=new Set(mine.map(c=>c.placeId));
-    const points=mine.reduce((a,c)=>a+(game.places.find(p=>p.id===c.placeId)?.points||0),0);
-    return {points,visited:visited.size,checkins:mine.filter(c=>!c.isTag).length,tagged:mine.filter(c=>c.isTag).length};
+    const placePoints=mine.reduce((a,c)=>a+(game.places.find(p=>p.id===c.placeId)?.points||0),0);
+    const challengePoints=(game.challengeCheckins||[]).filter(cc=>cc.playerId===uid).reduce((a,cc)=>a+((game.challenges||[]).find(c=>c.id===cc.challengeId)?.points||0),0);
+    return {points:placePoints+challengePoints,visited:visited.size,checkins:mine.filter(c=>!c.isTag).length,tagged:mine.filter(c=>c.isTag).length};
   }
   function isVisited(uid,placeId){return game?.checkins.some(c=>c.playerId===uid&&c.placeId===placeId);}
 
@@ -944,7 +947,7 @@ function App() {
       </>}
 
       {tab==="challenges"&&<>
-        <button className="hq-add-btn" onClick={()=>{setNewChallenge({name:"",notes:"",placeId:challengeFilter||null});setSheet({type:"addChallenge"});}}>+ Add a challenge</button>
+        <button className="hq-add-btn" onClick={()=>{setNewChallenge({name:"",notes:"",placeId:challengeFilter||null,points:"100"});setSheet({type:"addChallenge"});}}>+ Add a challenge</button>
         {challengeFilter&&<div className="hq-filter-bar">
           <span>Challenges for <b>{(game?.places||[]).find(p=>p.id===challengeFilter)?.name||"this place"}</b></span>
           <button className="hq-filter-clear" onClick={()=>setChallengeFilter(null)}>Show all</button>
@@ -965,6 +968,7 @@ function App() {
                 {c.notes&&<div className="hq-challenge-notes">{c.notes}</div>}
                 <div className="hq-challenge-meta">
                   {cPlace?<span className="hq-place-badge">{CAT_EMOJI[cPlace.category]||"📍"} {cPlace.name}</span>:<span className="hq-generic-badge">Generic</span>}
+                  <span className="hq-pts">+{c.points||0}</span>
                   {creator&&<span className="hq-by">by {creator.name}</span>}
                 </div>
                 {completedPlayers.length>0&&<div className="hq-avas" style={{marginTop:6}}>{completedPlayers.map(p=><span key={p.id} className="hq-av" style={{background:p.color,width:22,height:22,fontSize:11}}>{initial(p.name)}</span>)}</div>}
@@ -1124,6 +1128,7 @@ function App() {
             <option value="">Any place (generic)</option>
             {(game?.places||[]).map(p=><option key={p.id} value={p.id}>{CAT_EMOJI[p.category]||"📍"} {p.name}</option>)}
           </select>
+          <input className="hq-input" type="number" placeholder="Points" step="5" min="0" value={newChallenge.points} onChange={e=>setNewChallenge(c=>({...c,points:e.target.value}))}/>
         </div>
         <button className="hq-btn-dark" disabled={saving} onClick={addChallenge}>{saving?"Saving…":"Add Challenge"}</button>
         <button className="hq-btn-cancel" onClick={closeSheet}>Cancel</button>
@@ -1282,7 +1287,22 @@ function App() {
 // ── Sub-components ─────────────────────────────────────────────
 function ActivityLog({game}){
   if(!game) return null;
-  return [...game.checkins].sort((a,b)=>b.timestamp-a.timestamp).map((c,i)=>{
+  const placeEvents=(game.checkins||[]).map(c=>({...c,_kind:"place"}));
+  const challengeEvents=(game.challengeCheckins||[]).map(cc=>({...cc,_kind:"challenge"}));
+  return [...placeEvents,...challengeEvents].sort((a,b)=>b.timestamp-a.timestamp).map((ev,i)=>{
+    if(ev._kind==="challenge"){
+      const player=game.players.find(p=>p.id===ev.playerId);
+      const challenge=(game.challenges||[]).find(c=>c.id===ev.challengeId);
+      if(!player||!challenge) return null;
+      return <article key={ev.id} className="hq-feed-row challenge-feed" style={{animationDelay:i*0.03+"s"}}>
+        <span className="hq-av" style={{background:player.color,width:36,height:36,fontSize:16}}>{initial(player.name)}</span>
+        <div>
+          <div className="hq-feed-line"><b>{player.name}</b> completed <b>{challenge.name}</b></div>
+          <div className="hq-feed-meta">{timeAgo(ev.timestamp)} · <span className="hq-pts">+{challenge.points} pts</span></div>
+        </div>
+      </article>;
+    }
+    const c=ev;
     const player=game.players.find(p=>p.id===c.playerId),place=game.places.find(p=>p.id===c.placeId),tagger=c.isTag?game.players.find(p=>p.id===c.taggedById):null;
     if(!player||!place) return null;
     return <article key={c.id} className={"hq-feed-row"+(c.isTag?" tag":"")} style={{animationDelay:i*0.03+"s"}}>
@@ -1458,6 +1478,7 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-session-complete-lbl{font-family:'JetBrains Mono',monospace;font-size:10px;color:#3a9e5f;font-weight:700;}
 .hq-feed-row{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:center;gap:11px;box-shadow:3px 3px 0 var(--ink);animation:rise .4s both cubic-bezier(.2,.8,.3,1);}
 .hq-feed-row.tag{background:var(--paper2);border-style:dashed;}
+.hq-feed-row.challenge-feed{background:#EDE8FF;border-style:dashed;}
 .hq-feed-line{font-size:14px;line-height:1.4;}
 .hq-feed-line b{font-weight:700;}
 .hq-feed-meta{font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.5;margin-top:3px;}

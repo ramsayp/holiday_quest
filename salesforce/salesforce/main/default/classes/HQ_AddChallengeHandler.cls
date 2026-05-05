@@ -14,12 +14,15 @@ global without sharing class HQ_AddChallengeHandler implements RestAPIPostInterf
             return new Map<String, Object>{ 'error' => 'Missing required fields' };
         }
 
+        Decimal points = (Decimal) data.get('points');
+
         Challenge__c c = new Challenge__c(
             Name          = name,
             Holiday__c    = holidayId,
             Created_By__c = playerId,
             Notes__c      = (String) data.get('notes'),
-            Place__c      = (String) data.get('placeId')
+            Place__c      = (String) data.get('placeId'),
+            Points__c     = points != null ? points : 100
         );
         insert c;
 
