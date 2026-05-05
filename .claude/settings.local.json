@@ -5,7 +5,8 @@
       "Bash(Select-Object Name, PSIsContainer)",
       "Bash(Get-ChildItem -Recurse -File)",
       "Bash(Select-Object FullName)",
-      "Bash(mkdir -p \"c:/Users/PaulS/Projects/Coding/Languages/Multiple/holiday_quest/salesforce/salesforce/main/default/objects/Checkin__c/fields\")"
+      "Bash(mkdir -p \"c:/Users/PaulS/Projects/Coding/Languages/Multiple/holiday_quest/salesforce/salesforce/main/default/objects/Checkin__c/fields\")",
+      "Bash(Select-Object Name, Mode)"
     ],
     "additionalDirectories": [
       "c:\\Users\\PaulS\\Projects\\Coding\\Languages\\Multiple\\holiday_quest\\salesforce\\salesforce\\main\\default\\objects\\Checkin__c"

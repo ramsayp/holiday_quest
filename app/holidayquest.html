@@ -82,10 +82,12 @@ function App() {
 
   // UI
   const [tab,setTab]                 = useState("places");
+  const [challengeFilter,setChallengeFilter] = useState(null);
   const [sheet,setSheet]             = useState(null);
   const [adminTab,setAdminTab]       = useState("players");
   const [editPlayer,setEditPlayer]   = useState(null);
   const [newPlace,setNewPlace]       = useState({name:"",points:"200",category:"Bar"});
+  const [newChallenge,setNewChallenge] = useState({name:"",notes:"",placeId:null});
   const [editPlace,setEditPlace]     = useState(null);
   const [exportTxt,setExportTxt]     = useState("");
   const [toast,setToast]             = useState(null);
@@ -442,6 +444,32 @@ function App() {
   async function removePlace(placeId){
     setSaving(true);
     try{await api("RemovePlace",{placeId},jwtRef.current);await loadGame();showToast("Removed");}
+    catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  async function addChallenge(){
+    const name=newChallenge.name.trim(); if(!name) return showToast("Enter a name","err");
+    setSaving(true);
+    try{
+      await api("AddChallenge",{
+        holidayId:gameRef.current.holidayId,
+        playerId:myPlayer.id,
+        name,
+        notes:newChallenge.notes.trim()||null,
+        placeId:newChallenge.placeId||null
+      },jwtRef.current);
+      setNewChallenge({name:"",notes:"",placeId:null});
+      closeSheet();
+      await loadGame();
+      showToast("Challenge added");
+    }catch(e){showToast(e.message,"err");}
+    setSaving(false);
+  }
+
+  async function removeChallenge(challengeId){
+    setSaving(true);
+    try{await api("RemoveChallenge",{challengeId},jwtRef.current);await loadGame();showToast("Removed");}
     catch(e){showToast(e.message,"err");}
     setSaving(false);
   }
@@ -850,7 +878,7 @@ function App() {
         <div className="hq-hpts"><div className="hq-hpts-n">{myStats.points.toLocaleString()}</div><div className="hq-hpts-l">PTS</div></div>
       </div>
       <nav className="hq-tabs">
-        {[["places","Places"],["feed","Activity"],["ranks","Ranking"]].map(([id,lbl])=>(
+        {[["places","Places"],["challenges","Challenges"],["feed","Activity"],["ranks","Ranking"]].map(([id,lbl])=>(
           <button key={id} className={"hq-tab"+(tab===id?" on":"")} onClick={()=>setTab(id)}>{lbl}</button>
         ))}
       </nav>
@@ -863,37 +891,73 @@ function App() {
           const visited=isVisited(myPlayer?.id,p.id);
           const myCheckinCount=(game?.checkins||[]).filter(c=>c.playerId===myPlayer?.id&&c.placeId===p.id).length;
           const visitors=(game?.players||[]).filter(u=>game.checkins.some(c=>c.playerId===u.id&&c.placeId===p.id));
+          const placeChallenges=(game?.challenges||[]).filter(c=>c.placeId===p.id);
           return <article key={p.id} className={"hq-card"+(visited?" done":"")} style={{animationDelay:i*0.04+"s"}}>
-            <div className="hq-card-emoji">{CAT_EMOJI[p.category]||"📍"}</div>
-            <div className="hq-card-body">
-              <div className="hq-card-cat">{p.category}</div>
-              <div className="hq-card-name">
-                {visited&&<><span className="hq-tick">✓</span>{myCheckinCount>1&&<span className="hq-tally">x{myCheckinCount}</span>}</>}
-                {p.name}
+            <div className="hq-card-top">
+              <div className="hq-card-emoji">{CAT_EMOJI[p.category]||"📍"}</div>
+              <div className="hq-card-body">
+                <div className="hq-card-cat">{p.category}</div>
+                <div className="hq-card-name">
+                  {visited&&<><span className="hq-tick">✓</span>{myCheckinCount>1&&<span className="hq-tally">x{myCheckinCount}</span>}</>}
+                  {p.name}
+                </div>
+                <div className="hq-card-meta">
+                  <span className="hq-pts">+{p.points}</span>
+                  {visitors.length>0&&<div className="hq-avas">{visitors.slice(0,4).map(v=><span key={v.id} className="hq-av" style={{background:v.color,width:22,height:22,fontSize:11}}>{initial(v.name)}</span>)}</div>}
+                </div>
               </div>
-              <div className="hq-card-meta">
-                <span className="hq-pts">+{p.points}</span>
-                {visitors.length>0&&<div className="hq-avas">{visitors.slice(0,4).map(v=><span key={v.id} className="hq-av" style={{background:v.color,width:22,height:22,fontSize:11}}>{initial(v.name)}</span>)}</div>}
+              <div className="hq-card-actions">
+                {!visited
+                  ? pendingCheckInId===p.id
+                    ? <button className="hq-btn-go hq-btn-go-confirm" disabled={busy||saving} onClick={()=>{setPendingCheckInId(null);checkIn(p,false);}}>{busy?"…":"Confirm"}</button>
+                    : <button className="hq-btn-go" disabled={busy||saving} onClick={()=>setPendingCheckInId(p.id)}>Check in</button>
+                  : pendingCheckInId===p.id
+                    ? <button className="hq-btn-go hq-btn-go-confirm" disabled={busy||saving} onClick={()=>{setPendingCheckInId(null);checkIn(p,true);}}>{busy?"…":"Confirm"}</button>
+                    : <button className="hq-btn-again" onClick={()=>setPendingCheckInId(p.id)}>Check in again</button>
+                }
+                {visited
+                  ? <button className="hq-btn-tag" onClick={()=>{setPendingCheckInId(null);setSheet({type:"tagAgain",data:p});}}>Check in &amp; tag again</button>
+                  : <button className="hq-btn-tag" onClick={()=>{setPendingCheckInId(null);setSheet({type:"tag",data:p});}}>Check in &amp; tag</button>
+                }
+                {visited&&<button className="hq-btn-edit" onClick={()=>{setPendingCheckInId(null);setSheet({type:"editCheckin",data:p});}}>Edit check-in</button>}
               </div>
             </div>
-            <div className="hq-card-actions">
-              {!visited
-                ? pendingCheckInId===p.id
-                  ? <button className="hq-btn-go hq-btn-go-confirm" disabled={busy||saving} onClick={()=>{setPendingCheckInId(null);checkIn(p,false);}}>{busy?"…":"Confirm"}</button>
-                  : <button className="hq-btn-go" disabled={busy||saving} onClick={()=>setPendingCheckInId(p.id)}>Check in</button>
-                : pendingCheckInId===p.id
-                  ? <button className="hq-btn-go hq-btn-go-confirm" disabled={busy||saving} onClick={()=>{setPendingCheckInId(null);checkIn(p,true);}}>{busy?"…":"Confirm"}</button>
-                  : <button className="hq-btn-again" onClick={()=>setPendingCheckInId(p.id)}>Check in again</button>
-              }
-              {visited
-                ? <button className="hq-btn-tag" onClick={()=>{setPendingCheckInId(null);setSheet({type:"tagAgain",data:p});}}>Check in &amp; tag again</button>
-                : <button className="hq-btn-tag" onClick={()=>{setPendingCheckInId(null);setSheet({type:"tag",data:p});}}>Check in &amp; tag</button>
-              }
-              {visited&&<button className="hq-btn-edit" onClick={()=>{setPendingCheckInId(null);setSheet({type:"editCheckin",data:p});}}>Edit check-in</button>}
-            </div>
+            {placeChallenges.length>0&&<div className="hq-card-bottom">
+              <button className="hq-btn-challenges" onClick={()=>{setPendingCheckInId(null);setChallengeFilter(p.id);setTab("challenges");}}>
+                🎯 Check in Challenges ({placeChallenges.length})
+              </button>
+            </div>}
           </article>;
         })}</div>
         {(game?.places||[]).length===0&&<div className="hq-empty">📍<br/>No places yet — add some!</div>}
+      </>}
+
+      {tab==="challenges"&&<>
+        <button className="hq-add-btn" onClick={()=>{setNewChallenge({name:"",notes:"",placeId:challengeFilter||null});setSheet({type:"addChallenge"});}}>+ Add a challenge</button>
+        {challengeFilter&&<div className="hq-filter-bar">
+          <span>Challenges for <b>{(game?.places||[]).find(p=>p.id===challengeFilter)?.name||"this place"}</b></span>
+          <button className="hq-filter-clear" onClick={()=>setChallengeFilter(null)}>Show all</button>
+        </div>}
+        <div className="hq-list">{(()=>{
+          const filtered=(game?.challenges||[]).filter(c=>!challengeFilter||c.placeId===challengeFilter);
+          if(filtered.length===0) return <div className="hq-empty">🎯<br/>No challenges{challengeFilter?" for this place":""} yet — add one!</div>;
+          return filtered.map(c=>{
+            const cPlace=c.placeId?(game?.places||[]).find(p=>p.id===c.placeId):null;
+            const creator=(game?.players||[]).find(p=>p.id===c.createdById);
+            const canDelete=isAdmin||(c.createdById===myPlayer?.id);
+            return <article key={c.id} className="hq-challenge-card">
+              <div className="hq-challenge-body">
+                <div className="hq-card-name">{c.name}</div>
+                {c.notes&&<div className="hq-challenge-notes">{c.notes}</div>}
+                <div className="hq-challenge-meta">
+                  {cPlace?<span className="hq-place-badge">{CAT_EMOJI[cPlace.category]||"📍"} {cPlace.name}</span>:<span className="hq-generic-badge">Generic</span>}
+                  {creator&&<span className="hq-by">by {creator.name}</span>}
+                </div>
+              </div>
+              {canDelete&&<button className="hq-btn-sm danger" onClick={()=>removeChallenge(c.id)}>✕</button>}
+            </article>;
+          });
+        })()}</div>
       </>}
 
       {tab==="feed"&&<>
@@ -1029,6 +1093,21 @@ function App() {
           <input className="hq-input" type="number" placeholder="Points" step="5" min="0" value={newPlace.points} onChange={e=>setNewPlace(p=>({...p,points:e.target.value}))}/>
         </div>
         <button className="hq-btn-dark" disabled={saving} onClick={submitAddPlace}>{saving?"Saving…":"Add Place"}</button>
+        <button className="hq-btn-cancel" onClick={closeSheet}>Cancel</button>
+      </>}
+
+      {sheet.type==="addChallenge"&&<>
+        <div className="hq-s-eye">NEW CHALLENGE</div>
+        <div className="hq-s-title">Add a challenge</div>
+        <div className="hq-form">
+          <input className="hq-input" placeholder="Challenge name" value={newChallenge.name} onChange={e=>setNewChallenge(c=>({...c,name:e.target.value}))} autoFocus/>
+          <textarea className="hq-input" placeholder="Notes (optional)" rows={3} value={newChallenge.notes} onChange={e=>setNewChallenge(c=>({...c,notes:e.target.value}))} style={{resize:"none"}}/>
+          <select className="hq-input" value={newChallenge.placeId||""} onChange={e=>setNewChallenge(c=>({...c,placeId:e.target.value||null}))}>
+            <option value="">Any place (generic)</option>
+            {(game?.places||[]).map(p=><option key={p.id} value={p.id}>{CAT_EMOJI[p.category]||"📍"} {p.name}</option>)}
+          </select>
+        </div>
+        <button className="hq-btn-dark" disabled={saving} onClick={addChallenge}>{saving?"Saving…":"Add Challenge"}</button>
         <button className="hq-btn-cancel" onClick={closeSheet}>Cancel</button>
       </>}
 
@@ -1320,8 +1399,12 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-add-btn{width:100%;background:#fff;border:1.5px dashed var(--ink);border-radius:12px;padding:12px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-bottom:12px;}
 .hq-add-btn:active{background:var(--paper2);}
 .hq-list{display:flex;flex-direction:column;gap:10px;}
-.hq-card{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:flex-start;gap:11px;box-shadow:3px 3px 0 var(--ink);animation:rise .4s both cubic-bezier(.2,.8,.3,1);}
+.hq-card{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;flex-direction:column;box-shadow:3px 3px 0 var(--ink);animation:rise .4s both cubic-bezier(.2,.8,.3,1);}
 .hq-card.done{background:var(--paper2);}
+.hq-card-top{display:flex;align-items:flex-start;gap:11px;}
+.hq-card-bottom{margin-top:10px;border-top:1px solid rgba(14,27,42,.1);padding-top:10px;}
+.hq-btn-challenges{width:100%;background:#EDE8FF;border:1.5px solid var(--ink);color:var(--ink);padding:10px 14px;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;box-shadow:2px 2px 0 var(--ink);text-align:left;}
+.hq-btn-challenges:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink);}
 .hq-card-emoji{font-size:26px;flex-shrink:0;margin-top:2px;}
 .hq-card-body{flex:1;min-width:0;}
 .hq-card-cat{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1.5px;text-transform:uppercase;color:var(--terra);margin-bottom:2px;}
@@ -1424,6 +1507,15 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-wrap-confirm-btns .hq-btn-cancel{flex:1;padding:10px;}
 .hq-btn-wrap-yes{flex:1;background:#1a1a1a;border:1.5px solid var(--ink);color:#fff;border-radius:10px;padding:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;}
 .hq-export{width:100%;height:200px;background:#fff;border:1.5px solid var(--ink);border-radius:10px;padding:12px;font-family:'JetBrains Mono',monospace;font-size:11px;resize:none;margin-bottom:12px;color:var(--ink);}
+.hq-filter-bar{display:flex;align-items:center;justify-content:space-between;background:#EDE8FF;border:1.5px solid var(--ink);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;gap:10px;}
+.hq-filter-clear{background:var(--ink);border:none;color:var(--paper);border-radius:8px;padding:5px 12px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;flex-shrink:0;}
+.hq-challenge-card{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px;box-shadow:3px 3px 0 var(--ink);animation:rise .4s both cubic-bezier(.2,.8,.3,1);}
+.hq-challenge-body{flex:1;min-width:0;}
+.hq-challenge-notes{font-size:13px;opacity:.65;margin-top:4px;margin-bottom:6px;line-height:1.4;}
+.hq-challenge-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:6px;}
+.hq-place-badge{font-family:'JetBrains Mono',monospace;font-size:10px;background:#EDE8FF;border:1px solid rgba(14,27,42,.25);border-radius:20px;padding:2px 8px;letter-spacing:.5px;}
+.hq-generic-badge{font-family:'JetBrains Mono',monospace;font-size:10px;background:var(--paper2);border:1px solid rgba(14,27,42,.2);border-radius:20px;padding:2px 8px;letter-spacing:.5px;opacity:.6;}
+.hq-by{font-family:'JetBrains Mono',monospace;font-size:10px;opacity:.45;}
 .hq-toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:11px 22px;border-radius:50px;font-size:13px;font-weight:600;z-index:300;box-shadow:3px 3px 0 var(--coral);animation:toast .35s cubic-bezier(.2,.8,.3,1);font-family:'DM Serif Display',serif;max-width:90vw;text-align:center;white-space:nowrap;}
 .hq-toast.err{box-shadow:3px 3px 0 var(--terra);}
 .hq-confirm-box{background:#fff4f4;border:1.5px solid #ddb0b0;border-radius:12px;padding:14px;margin-bottom:8px;}

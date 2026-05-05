@@ -76,13 +76,31 @@ global without sharing class HQ_GetHolidayStateHandler implements RestAPIPostInt
             });
         }
  
+        // Challenges
+        List<Map<String, Object>> challengeList = new List<Map<String, Object>>();
+        for (Challenge__c ch : [
+            SELECT Id, Name, Notes__c, Place__c, Created_By__c
+            FROM Challenge__c
+            WHERE Holiday__c = :holidayId
+            ORDER BY CreatedDate ASC
+        ]) {
+            challengeList.add(new Map<String, Object>{
+                'id'          => ch.Id,
+                'name'        => ch.Name,
+                'notes'       => ch.Notes__c,
+                'placeId'     => ch.Place__c,
+                'createdById' => ch.Created_By__c
+            });
+        }
+
         return new Map<String, Object>{
-            'holidayId' => holiday.Id,
-            'name'      => holiday.Name,
-            'wrapped'   => holiday.Wrapped__c,
-            'players'   => playerList,
-            'places'    => placeList,
-            'checkins'  => checkinList
+            'holidayId'  => holiday.Id,
+            'name'       => holiday.Name,
+            'wrapped'    => holiday.Wrapped__c,
+            'players'    => playerList,
+            'places'     => placeList,
+            'checkins'   => checkinList,
+            'challenges' => challengeList
         };
     }
 }
