@@ -494,7 +494,8 @@ function App() {
   function isVisited(uid,placeId){return game?.checkins.some(c=>c.playerId===uid&&c.placeId===placeId);}
 
   const myStats     = myPlayer?userStats(myPlayer.id):{points:0,visited:0,checkins:0,tagged:0};
-  const leaderboard = (game?.players||[]).map(p=>({...p,...userStats(p.id)})).sort((a,b)=>b.points-a.points);
+  const sorted=(game?.players||[]).map(p=>({...p,...userStats(p.id)})).sort((a,b)=>b.points-a.points);
+  const leaderboard=sorted.map((p,i,arr)=>({...p,rank:arr.findIndex(x=>x.points===p.points)+1}));
   const isAdmin     = myPlayer?.isAdmin;
   const takenColors = (game?.players||[]).map(p=>p.color);
 
@@ -699,7 +700,7 @@ function App() {
       <Podium leaderboard={leaderboard}/>
       <div className="hq-list">{leaderboard.map((p,i)=>(
         <div key={p.id} className={"hq-rank-row"+(p.id===myPlayer?.id?" me":"")}>
-          <div className="hq-rank-n">{String(i+1).padStart(2,"0")}</div>
+          <div className="hq-rank-n">{leaderboard.filter(x=>x.points===p.points).length>1&&<span className="hq-tie-eq">=</span>}<span className="num">{String(p.rank).padStart(2,"0")}</span></div>
           <div className="hq-av" style={{background:p.color,width:36,height:36,fontSize:16}}>{initial(p.name)}</div>
           <div style={{flex:1}}><div className="hq-rank-name">{p.name}</div><div className="hq-rank-meta">{p.visited} places · {p.checkins} ci · {p.tagged} tagged</div></div>
           <div className="hq-rank-pts">{p.points.toLocaleString()}<span>pts</span></div>
@@ -777,7 +778,7 @@ function App() {
         <Podium leaderboard={leaderboard}/>
         <div className="hq-list">{leaderboard.map((p,i)=>(
           <div key={p.id} className={"hq-rank-row"+(p.id===myPlayer?.id?" me":"")}>
-            <div className="hq-rank-n">{String(i+1).padStart(2,"0")}</div>
+            <div className="hq-rank-n">{leaderboard.filter(x=>x.points===p.points).length>1&&<span className="hq-tie-eq">=</span>}<span className="num">{String(p.rank).padStart(2,"0")}</span></div>
             <div className="hq-av" style={{background:p.color,width:36,height:36,fontSize:16}}>{initial(p.name)}</div>
             <div style={{flex:1}}><div className="hq-rank-name">{p.name}</div><div className="hq-rank-meta">{p.visited} places · {p.checkins} ci · {p.tagged} tagged</div></div>
             <div className="hq-rank-pts">{p.points.toLocaleString()}<span>pts</span></div>
@@ -967,11 +968,12 @@ function Podium({leaderboard}){
   return <div className="hq-podium">{[1,0,2].map(idx=>{
     const u=leaderboard[idx]; if(!u) return null;
     const h={0:110,1:78,2:58}[idx];
+    const tied=leaderboard.filter(x=>x.points===u.points).length>1;
     return <div key={u.id} className="hq-pod-col">
       <div className="hq-pod-av" style={{background:u.color}}>{initial(u.name)}</div>
       <div className="hq-pod-name">{u.name}</div>
       <div className="hq-pod-pts">{u.points}</div>
-      <div className="hq-pod-block" style={{height:h,background:u.color}}><span>{idx+1}</span></div>
+      <div className="hq-pod-block" style={{height:h,background:u.color}}><span>{tied?`=${u.rank}`:u.rank}</span></div>
     </div>;
   })}</div>;
 }
@@ -1113,7 +1115,7 @@ const css=`@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Displa
 .hq-pod-block span{font-family:'DM Serif Display',serif;font-size:20px;color:#fff;}
 .hq-rank-row{background:#fff;border:1.5px solid var(--ink);border-radius:14px;padding:13px;display:flex;align-items:center;gap:11px;box-shadow:3px 3px 0 var(--ink);}
 .hq-rank-row.me{background:var(--paper2);border-width:2px;}
-.hq-rank-n{font-family:'DM Serif Display',serif;font-size:18px;opacity:.35;width:24px;flex-shrink:0;}
+.hq-rank-n{font-family:'DM Serif Display',serif;font-size:18px;width:24px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:1px;}.hq-rank-n .num{color:rgba(14,27,42,.35);}.hq-tie-eq{font-family:'JetBrains Mono',monospace;font-size:7px;color:var(--coral);letter-spacing:2px;font-weight:700;line-height:1;}
 .hq-rank-name{font-family:'DM Serif Display',serif;font-size:16px;}
 .hq-rank-meta{font-size:10px;opacity:.5;font-family:'JetBrains Mono',monospace;}
 .hq-rank-pts{font-family:'DM Serif Display',serif;font-size:20px;color:var(--coral);text-align:right;}
