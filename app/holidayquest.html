@@ -747,7 +747,7 @@ function App() {
         <div className="hq-logo"><MiniMap/><span className="hq-logo-txt">{game?.name}</span></div>
         <div style={{display:"flex",gap:8}}>
           {isAdmin&&<button className="hq-icon-btn" title="Reopen" onClick={reopenHoliday}>↩️</button>}
-          {isAdmin&&<button className="hq-icon-btn" onClick={()=>{buildExport();setSheet({type:"export"});}}>📊</button>}
+          {isAdmin&&<button className="hq-icon-btn" onClick={()=>{buildExport();setAdminTab("export");setSheet({type:"admin"});}}>⚙️</button>}
         </div>
       </div>
       <div className="hq-hero" style={{"--c":myPlayer?.color||"#888"}}>
@@ -773,7 +773,55 @@ function App() {
       <div className="hq-s-eye" style={{marginTop:20,marginBottom:10}}>ACTIVITY LOG</div>
       <div className="hq-list"><ActivityLog game={game}/></div>
     </main>
-    {sheet?.type==="export"&&<div className="hq-overlay" onClick={closeSheet}><div className="hq-sheet" onClick={e=>e.stopPropagation()}><div className="hq-handle"/><ExportSheet txt={exportTxt} onClose={closeSheet} onCopy={()=>navigator.clipboard?.writeText(exportTxt).then(()=>showToast("Copied!")).catch(()=>showToast("Copy manually","err"))}/></div></div>}
+    {sheet?.type==="admin"&&<div className="hq-overlay" onClick={closeSheet}><div className="hq-sheet hq-sheet-admin" onClick={e=>e.stopPropagation()}>
+      <div className="hq-handle"/>
+      <div className="hq-admin-content">
+        {adminTab==="export"&&<>
+          <textarea className="hq-export" readOnly value={exportTxt}/>
+          <button className="hq-btn-dark" onClick={()=>navigator.clipboard?.writeText(exportTxt).then(()=>showToast("Copied!")).catch(()=>showToast("Copy manually","err"))}>Copy to clipboard</button>
+        </>}
+        {adminTab==="finish"&&<div style={{paddingTop:4}}>
+          <div className="hq-delete-section" style={{borderTop:"none",marginTop:0,paddingTop:0}}>
+            <div className="hq-wrap-label">DANGER ZONE</div>
+            {deleteStep===null&&
+              <button className="hq-btn-danger" onClick={()=>setDeleteStep("confirm")}>🗑️ Delete Holiday</button>
+            }
+            {deleteStep==="confirm"&&
+              <div className="hq-confirm-box">
+                <div className="hq-confirm-msg">Permanently delete this holiday? All players, places, and check-ins will be gone forever.</div>
+                <div className="hq-confirm-btns">
+                  <button className="hq-btn-cancel" onClick={()=>setDeleteStep(null)}>Cancel</button>
+                  <button className="hq-btn-danger-sm" onClick={()=>setDeleteStep("hold")}>Yes, continue →</button>
+                </div>
+              </div>
+            }
+            {deleteStep==="hold"&&
+              <div className="hq-confirm-box">
+                <div className="hq-confirm-msg">Hold the button for 5 seconds to permanently delete.</div>
+                <button
+                  className="hq-hold-btn"
+                  onMouseDown={startHold} onMouseUp={cancelHold} onMouseLeave={cancelHold}
+                  onTouchStart={startHold} onTouchEnd={cancelHold} onTouchCancel={cancelHold}
+                  disabled={saving}
+                >
+                  <span className="hq-hold-fill" style={{width:holdProgress+"%"}}/>
+                  <span className="hq-hold-label">{saving?"Deleting…":"Hold to delete"}</span>
+                </button>
+                <button className="hq-btn-cancel" style={{marginTop:8,width:"100%"}} onClick={()=>{cancelHold();setDeleteStep(null);}}>Cancel</button>
+              </div>
+            }
+          </div>
+        </div>}
+      </div>
+      <div className="hq-admin-footer">
+        <div className="hq-admin-footer-label">⚙️ Admin Settings — {game?.name}</div>
+        <div className="hq-admin-tabs">
+          <button className={"hq-atab"+(adminTab==="export"?" on":"")} onClick={()=>{buildExport();setAdminTab("export");}}>Export</button>
+          <button className={"hq-atab"+(adminTab==="finish"?" on":"")} onClick={()=>setAdminTab("finish")}>Finish</button>
+        </div>
+        <button className="hq-btn-cancel" onClick={closeSheet}>Close</button>
+      </div>
+    </div></div>}
     {toast&&<div className={"hq-toast"+(toast.type==="err"?" err":"")}>{toast.msg}</div>}
   </div>;
 
