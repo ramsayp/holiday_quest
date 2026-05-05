@@ -54,7 +54,8 @@ holiday_quest/
 │   │   ├── HQ_UpdatePlaceHandler.cls
 │   │   ├── HQ_RemovePlaceHandler.cls
 │   │   ├── HQ_WrapHolidayHandler.cls
-│   │   └── HQ_ReopenHolidayHandler.cls
+│   │   ├── HQ_ReopenHolidayHandler.cls
+│   │   └── HQ_DeleteHolidayHandler.cls
 │   └── objects/
 │       └── Checkin__c/
 │           └── fields/
@@ -157,6 +158,7 @@ holiday_quest/
 | HQ_RemovePlaceHandler | JWT | Delete venue (cascade deletes checkins) |
 | HQ_WrapHolidayHandler | JWT | End holiday — show final results only |
 | HQ_ReopenHolidayHandler | JWT | Reopen wrapped holiday |
+| HQ_DeleteHolidayHandler | JWT | Permanently delete holiday and all child records |
 
 ### Public Routes (no JWT required)
 `CreateClient`, `VerifyClient`, `SetupAccount`, `CheckEmail`, `GetToken`
@@ -245,6 +247,23 @@ A **session** is a group of check-ins at the same place that happened together. 
 
 `Tagged_By__c` is preserved on child records and records who did the tagging within the session.
 
+### Admin Panel
+
+Accessible via the ⚙️ icon (admin players only). Available in both `app` and `wrapped` statuses.
+
+| Tab | Available in `app` | Available in `wrapped` | Description |
+|---|---|---|---|
+| Players | ✓ | — | Edit name/colour, remove players |
+| Places | ✓ | — | Edit venues, remove places |
+| Export | ✓ | ✓ | CSV export of all check-in data |
+| Finish | ✓ | ✓ | Wrap holiday / Delete holiday |
+
+**Wrap Holiday** — marks the holiday as ended. Players see final results only. Can be reversed with the ↩️ Reopen button.
+
+**Delete Holiday** — permanently deletes the Holiday record and all child Players, Places, and Check-ins. Two-step confirmation:
+1. Click "Delete Holiday" → confirmation prompt
+2. Click "Yes, continue →" → hold button fills red over 5 seconds (release early to cancel)
+
 ### Leaderboard & Ranking
 
 Uses **competition ranking** (1, 1, 3 style) — players with equal points share the same rank.
@@ -305,7 +324,7 @@ Goes to Register tab → enters email → placeholder detected → redirected to
 ### Guest User Permissions
 The guest user profile needs:
 - **Object permissions:** Read, Create, Edit on Client, Holiday, Player, Place, Checkin
-- **Permission Set:** Delete permission on Player and Place (can't be set on guest profile directly — use a Permission Set assigned to the guest user)
+- **Permission Set:** Delete permission on Holiday, Player, and Place (can't be set on guest profile directly — use a Permission Set assigned to the guest user)
 - **Field-level security:** Read/Edit on all custom fields
 - **Apex Class Access:** RestAPIPostEndpoint
 
