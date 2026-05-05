@@ -103,7 +103,7 @@ holiday_quest/
 | Holiday__c | Master-Detail | Cascade deletes checkins |
 | Client__c | Lookup(Client) | Links player to platform identity |
 | Is_Admin__c | Checkbox | Admin can manage players/places |
-| Color__c | Text | Hex colour e.g. #FF6B47 |
+| Color__c | Text | Hex colour e.g. #E64A19 |
 
 **Place__c** — Master-Detail to Holiday
 | Field | Type | Notes |
