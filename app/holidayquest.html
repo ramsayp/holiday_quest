@@ -1153,7 +1153,7 @@ function App() {
                 <div className="hq-av" style={{background:p.color,width:36,height:36,fontSize:16}}>{initial(p.name)}</div>
                 <div style={{flex:1}}><div className="hq-ur-name">{p.name}</div><div className="hq-ur-meta">{p.isAdmin?"admin · ":""}{userStats(p.id).points} pts</div></div>
                 <button className="hq-btn-sm" onClick={()=>setEditPlayer({...p})}>Edit</button>
-                {!p.isAdmin&&<button className="hq-btn-sm danger" onClick={()=>setConfirmRemovePlayer(p)}>✕</button>}
+                <button className="hq-btn-sm danger" style={{visibility:p.isAdmin?"hidden":"visible"}} onClick={()=>setConfirmRemovePlayer(p)}>✕</button>
               </div>)}
               {confirmRemovePlayer&&<div className="hq-confirm-box">
                 <div className="hq-confirm-msg">Remove <b>{confirmRemovePlayer.name}</b> from this holiday? Their check-ins will also be deleted.</div>
@@ -1234,7 +1234,7 @@ function App() {
             }
 
             <div className="hq-delete-section">
-              <div className="hq-wrap-label">DANGER ZONE</div>
+              <div className="hq-s-title">Remove holiday from account</div>
               {deleteStep===null&&
                 <button className="hq-btn-danger" onClick={()=>setDeleteStep("confirm")}>🗑️ Delete Holiday</button>
               }
